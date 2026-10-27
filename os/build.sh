@@ -1,7 +1,8 @@
 #!/bin/bash
 # beeOS flash disk imajı üretir. Docker içinde (debian:trixie, --privileged) çalışır; os/build.ps1 başlatır.
 #   /src  : proje klasörü (salt okunur)   /out : çıktı (beeos.img)   /work : önbellek (docker volume)
-# Çıktı: GPT disk imajı = EFI bölümü (shim + imzalı GRUB, Secure Boot ile açılır) + ext4 sistem bölümü.
+# Çıktı: GPT disk imajı = EFI bölümü (shim + imzalı GRUB, Secure Boot ile açılır)
+#   + BEEOS-LOG (FAT32, Windows'ta açılır; teşhis günlükleri) + ext4 sistem bölümü.
 set -euo pipefail
 
 SUITE=trixie
@@ -10,6 +11,8 @@ ESP_MB=256
 IMG=/out/beeos.img
 ROOT_UUID=b33e0500-0000-4000-8000-0000000000be
 ESP_ID=BEE05EF1
+LOG_MB=64
+LOG_ID=BEE0106A
 
 log() { echo -e "\n\033[1;33m== $*\033[0m"; }
 
@@ -69,6 +72,7 @@ chmod 755 "$R"/opt/beeos/bin/*
 cat > "$R/etc/fstab" <<EOF
 UUID=$ROOT_UUID  /          ext4  noatime,commit=60,errors=remount-ro  0 1
 UUID=${ESP_ID:0:4}-${ESP_ID:4:4}  /boot/efi  vfat  umask=0077,noauto,nofail  0 2
+UUID=${LOG_ID:0:4}-${LOG_ID:4:4}  /mnt/beeos-log  vfat  umask=0022,nofail,x-systemd.device-timeout=10s  0 0
 tmpfs  /tmp  tmpfs  nosuid,nodev,size=25%  0 0
 EOF
 echo beeos > "$R/etc/hostname"
@@ -91,7 +95,9 @@ id bee >/dev/null 2>&1 || useradd -m -s /bin/bash -G video,render,input,audio,ne
 passwd -l bee >/dev/null; passwd -l root >/dev/null
 chown -R bee:bee /home/bee
 
-systemctl enable NetworkManager beeos-backend beeos-grow bluetooth >/dev/null 2>&1
+command -v lspci >/dev/null || { apt-get update -qq && apt-get install -y -qq pciutils >/dev/null; }
+mkdir -p /mnt/beeos-log
+systemctl enable NetworkManager beeos-backend beeos-grow beeos-logdump.timer bluetooth >/dev/null 2>&1
 systemctl mask apt-daily.timer apt-daily-upgrade.timer man-db.timer e2scrub_all.timer >/dev/null 2>&1
 systemctl set-default multi-user.target >/dev/null
 
@@ -113,15 +119,19 @@ log "EFI bölümü (shim + imzalı GRUB)"
 KVER=$(ls "$R/lib/modules" | sort -V | tail -1)
 GRUBCFG=/work/grub.cfg
 cat > "$GRUBCFG" <<EOF
-set timeout=0
-set timeout_style=hidden
+set timeout=3
+set timeout_style=menu
 search --no-floppy --fs-uuid --set=root $ROOT_UUID
 menuentry "beeOS" {
-  linux /vmlinuz root=UUID=$ROOT_UUID ro quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=false vt.global_cursor_default=0 splash
+  linux /vmlinuz root=UUID=$ROOT_UUID ro loglevel=4 systemd.show_status=true
+  initrd /initrd.img
+}
+menuentry "beeOS (Nvidia kapalı, sadece laptop ekranı)" {
+  linux /vmlinuz root=UUID=$ROOT_UUID ro modprobe.blacklist=nouveau systemd.show_status=true
   initrd /initrd.img
 }
 menuentry "beeOS (güvenli mod, ekran kartı sürücüsüz)" {
-  linux /vmlinuz root=UUID=$ROOT_UUID ro nomodeset
+  linux /vmlinuz root=UUID=$ROOT_UUID ro nomodeset systemd.show_status=true
   initrd /initrd.img
 }
 EOF
@@ -136,6 +146,14 @@ mcopy -i "$ESP" "$R/usr/lib/grub/x86_64-efi-signed/grubx64.efi.signed" ::/EFI/BO
 mcopy -i "$ESP" "$GRUBCFG" ::/EFI/BOOT/grub.cfg
 mcopy -i "$ESP" "$GRUBCFG" ::/EFI/debian/grub.cfg
 
+log "Günlük bölümü (BEEOS-LOG, FAT32)"
+LOGIMG=/work/log.img
+rm -f "$LOGIMG"
+mkfs.vfat -F 32 -n BEEOS-LOG -i "$LOG_ID" -C "$LOGIMG" $((LOG_MB * 1024)) >/dev/null
+printf 'beeOS teşhis günlükleri. Her açılış ayrı klasöre yazılır.
+' > /work/BENIOKU.txt
+mcopy -i "$LOGIMG" /work/BENIOKU.txt ::/BENIOKU.txt
+
 log "Sistem bölümü (ext4)"
 USED_MB=$(du -sm "$R" | cut -f1)
 ROOT_MB=$((USED_MB * 115 / 100 + 600))
@@ -144,16 +162,18 @@ rm -f "$ROOTIMG"
 mke2fs -q -t ext4 -L beeos -U "$ROOT_UUID" -E root_owner=0:0 -d "$R" "$ROOTIMG" "${ROOT_MB}M"
 
 log "Disk imajı (GPT)"
-TOTAL_MB=$((1 + ESP_MB + ROOT_MB + 1))
+TOTAL_MB=$((1 + ESP_MB + LOG_MB + ROOT_MB + 1))
 rm -f "$IMG"
 truncate -s "${TOTAL_MB}M" "$IMG"
 sfdisk -q "$IMG" <<EOF
 label: gpt
 start=1MiB, size=${ESP_MB}MiB, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, name="EFI"
-start=$((1 + ESP_MB))MiB, size=${ROOT_MB}MiB, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name="beeOS"
+start=$((1 + ESP_MB))MiB, size=${LOG_MB}MiB, type=EBD0A0A2-B9E5-4433-87C0-68B6B72699C7, name="BEEOS-LOG"
+start=$((1 + ESP_MB + LOG_MB))MiB, size=${ROOT_MB}MiB, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name="beeOS"
 EOF
 dd if="$ESP" of="$IMG" bs=1M seek=1 conv=notrunc status=none
-dd if="$ROOTIMG" of="$IMG" bs=1M seek=$((1 + ESP_MB)) conv=notrunc status=none
-rm -f "$ESP" "$ROOTIMG"
+dd if="$LOGIMG" of="$IMG" bs=1M seek=$((1 + ESP_MB)) conv=notrunc status=none
+dd if="$ROOTIMG" of="$IMG" bs=1M seek=$((1 + ESP_MB + LOG_MB)) conv=notrunc status=none
+rm -f "$ESP" "$LOGIMG" "$ROOTIMG"
 
 log "Bitti: $(basename "$IMG")  $(du -h --apparent-size "$IMG" | cut -f1)  (kernel $KVER, kök $USED_MB MB)"

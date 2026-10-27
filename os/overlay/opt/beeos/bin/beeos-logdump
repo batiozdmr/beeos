@@ -1,0 +1,26 @@
+#!/bin/sh
+# Teşhis: açılıştan sonraki ilk 10 dakika boyunca günlükleri BEEOS-LOG bölümüne yazar.
+# Bu bölüm FAT32'dir; flash disk Windows'a takılınca kendi sürücü harfiyle açılır.
+D=/mnt/beeos-log
+mountpoint -q "$D" || exit 0
+[ "$(cut -d. -f1 /proc/uptime)" -gt 600 ] && exit 0
+B="$D/$(date +%Y%m%d-%H%M)-$(cut -c1-6 /proc/sys/kernel/random/boot_id)"
+mkdir -p "$B"
+journalctl -b --no-pager -o short-monotonic > "$B/journal.txt" 2>&1
+dmesg > "$B/dmesg.txt" 2>&1
+systemctl --failed --no-pager > "$B/failed.txt" 2>&1
+cp /run/user/1000/*.log "$B/" 2>/dev/null
+{
+  echo "== bağlantı durumları"
+  for f in /sys/class/drm/card*-*/status; do echo "$f: $(cat "$f")"; done
+  echo "== kartlar ve sürücüler"
+  for c in /sys/class/drm/card[0-9]; do
+    echo "$c: $(basename "$(readlink -f "$c/device/driver")") boot_vga=$(cat "$c/device/boot_vga" 2>/dev/null)"
+  done
+  echo "== süreçler"
+  ps -eo pid,user,etime,cmd | grep -E 'sway|chrome|beeos|python' | grep -v grep | cut -c1-200
+} > "$B/drm.txt" 2>&1
+lspci -nnk > "$B/lspci.txt" 2>&1
+# en fazla 6 açılışın günlüğünü tut
+ls -1d "$D"/2* 2>/dev/null | head -n -6 | xargs -r rm -rf
+sync

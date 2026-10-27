@@ -1,20 +1,42 @@
 #!/bin/sh
-# tty1'de otomatik girişten sonra çalışır: ekran düzenini hazırlar ve sway'i başlatır.
+# tty1'de otomatik girişten sonra çalışır ve sway'i (kiosk) başlatır.
+# sway hemen kapanırsa (ekran kartı sorunu) sadece dahili Intel kartıyla tekrar dener.
 export XDG_SESSION_TYPE=wayland
 export XDG_CURRENT_DESKTOP=sway
-# Sanal makine / ekran kartı sürücüsü olmayan sistemlerde yazılımsal çizim
+# Sanal makine / sürücüsüz sistemlerde yazılımsal çizim
 export WLR_RENDERER_ALLOW_SOFTWARE=1
 export WLR_NO_HARDWARE_CURSORS=1
+RUN=/run/user/$(id -u)
 
-# HDMI (TV) bağlıysa laptop ekranını kapat, görüntü sadece TV'de olsun
-OUT=/run/user/$(id -u)/beeos-outputs.conf
-: > "$OUT"
-for st in /sys/class/drm/card*-HDMI-A-*/status /sys/class/drm/card*-DP-*/status; do
-  [ -f "$st" ] || continue
-  if [ "$(cat "$st")" = connected ]; then
-    echo 'output eDP-1 disable' >> "$OUT"
-    break
-  fi
-done
+say() { printf '\033[1;33mbeeOS:\033[0m %s\n' "$*"; echo "$(date +%T) $*" >> "$RUN/session.log"; }
 
-exec sway -c /opt/beeos/sway/config > /run/user/$(id -u)/sway.log 2>&1
+# Dahili ekranı süren kart (boot_vga=1, genelde Intel)
+primary_card() {
+  for c in /sys/class/drm/card[0-9]; do
+    [ "$(cat "$c/device/boot_vga" 2>/dev/null)" = 1 ] && { echo "/dev/dri/$(basename "$c")"; return; }
+  done
+}
+
+try_sway() {
+  say "sway başlatılıyor ($1)"
+  start=$(date +%s)
+  sway -c /opt/beeos/sway/config > "$RUN/sway-$1.log" 2>&1
+  code=$?
+  say "sway kapandı ($1), kod $code, $(( $(date +%s) - start )) sn"
+  # 20 sn'den uzun çalıştıysa bilerek kapatılmıştır (Ctrl+Alt+Backspace vb.)
+  [ $(( $(date +%s) - start )) -gt 20 ]
+}
+
+try_sway tum-kartlar && exit 0
+card=$(primary_card)
+if [ -n "$card" ]; then
+  export WLR_DRM_DEVICES="$card"
+  try_sway "sadece-$(basename "$card")" && exit 0
+  unset WLR_DRM_DEVICES
+fi
+export WLR_RENDERER=pixman
+try_sway yazilimsal && exit 0
+
+say "Ekran başlatılamadı. Günlükler flash diskteki BEEOS-LOG bölümüne yazıldı."
+say "Bilgisayarı kapatmak için güç tuşuna bas."
+sleep 600
