@@ -29,6 +29,6 @@ while true; do
     --remote-debugging-address=127.0.0.1 \
     --remote-debugging-port=9222 \
     --check-for-update-interval=31536000 \
-    "http://127.0.0.1:8080/"
+    "http://127.0.0.1:8080/" >> "/run/user/$(id -u)/chrome.log" 2>&1
   sleep 1
 done

@@ -1,0 +1,10 @@
+[Unit]
+Description=beeOS: açılışın ilk dakikalarında günlükleri 20 sn'de bir kaydet
+
+[Timer]
+OnBootSec=15s
+OnUnitActiveSec=20s
+AccuracySec=2s
+
+[Install]
+WantedBy=timers.target

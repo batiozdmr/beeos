@@ -1,0 +1,6 @@
+[Unit]
+Description=beeOS: teşhis günlüklerini BEEOS-LOG bölümüne yaz
+
+[Service]
+Type=oneshot
+ExecStart=/opt/beeos/bin/beeos-logdump
