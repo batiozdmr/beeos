@@ -1,0 +1,26 @@
+# webOS paketleri (ares-package çıktısı)
+*.ipk
+
+# Derleme çıktıları
+dist/
+build/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+
+# İşletim sistemi
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Günlükler
+*.log
