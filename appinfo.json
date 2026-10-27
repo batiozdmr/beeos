@@ -1,7 +1,7 @@
 {
   "id": "com.beeuptech.beeos",
-  "version": "0.3.0",
-  "vendor": "ozdem",
+  "version": "0.4.0",
+  "vendor": "beeuptech",
   "type": "web",
   "main": "index.html",
   "title": "beeOS",

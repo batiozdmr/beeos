@@ -1,0 +1,20 @@
+#!/bin/sh
+# tty1'de otomatik girişten sonra çalışır: ekran düzenini hazırlar ve sway'i başlatır.
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=sway
+# Sanal makine / ekran kartı sürücüsü olmayan sistemlerde yazılımsal çizim
+export WLR_RENDERER_ALLOW_SOFTWARE=1
+export WLR_NO_HARDWARE_CURSORS=1
+
+# HDMI (TV) bağlıysa laptop ekranını kapat, görüntü sadece TV'de olsun
+OUT=/run/user/$(id -u)/beeos-outputs.conf
+: > "$OUT"
+for st in /sys/class/drm/card*-HDMI-A-*/status /sys/class/drm/card*-DP-*/status; do
+  [ -f "$st" ] || continue
+  if [ "$(cat "$st")" = connected ]; then
+    echo 'output eDP-1 disable' >> "$OUT"
+    break
+  fi
+done
+
+exec sway -c /opt/beeos/sway/config > /run/user/$(id -u)/sway.log 2>&1

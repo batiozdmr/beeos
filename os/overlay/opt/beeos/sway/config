@@ -1,0 +1,37 @@
+# beeOS kiosk: tek pencere, tam ekran Chrome. Pencere süsü, çubuk, masaüstü yok.
+include /run/user/*/beeos-outputs.conf
+
+output * bg #0b0f1a solid_color
+default_border none
+default_floating_border none
+focus_follows_mouse no
+seat * hide_cursor 4000
+
+input type:keyboard {
+    xkb_layout tr
+    repeat_delay 350
+    repeat_rate 25
+}
+
+# Kapak kapanınca laptop ekranı kapanır, açılınca geri gelir (TV'de görüntü sürer)
+bindswitch --reload --locked lid:on output eDP-1 disable
+bindswitch --reload --locked lid:off output eDP-1 enable
+
+# Her pencere tam ekran
+for_window [app_id=".*"] fullscreen enable
+for_window [class=".*"] fullscreen enable
+
+# Home: açık uygulamadan beeOS'a dön (kumandanın Home tuşu, klavyede Home / Windows / F12)
+bindsym XF86HomePage exec /opt/beeos/bin/beeos-home
+bindsym --release Super_L exec /opt/beeos/bin/beeos-home
+bindsym F12 exec /opt/beeos/bin/beeos-home
+
+# Ses tuşları
+bindsym --locked XF86AudioRaiseVolume exec wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+
+bindsym --locked XF86AudioLowerVolume exec wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
+bindsym --locked XF86AudioMute exec wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
+
+# Acil çıkış yok; Ctrl+Alt+Backspace sway'i yeniden başlatır (oturum kendini yeniler)
+bindsym Ctrl+Alt+BackSpace exit
+
+exec /opt/beeos/bin/beeos-browser
