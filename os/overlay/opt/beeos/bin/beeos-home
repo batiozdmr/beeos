@@ -1,0 +1,3 @@
+#!/bin/sh
+# Home tuşu: açık uygulama sekmesinden beeOS'a döner
+exec curl -fs -o /dev/null -X POST -H 'X-BeeOS: 1' http://127.0.0.1:8080/api/home

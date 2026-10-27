@@ -1,0 +1,11 @@
+[Unit]
+Description=beeOS: sistem bölümünü flash diskin tamamına büyüt
+ConditionPathExists=!/var/lib/beeos/grown
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/beeos/bin/beeos-grow
+
+[Install]
+WantedBy=multi-user.target

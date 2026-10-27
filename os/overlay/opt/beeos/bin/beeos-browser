@@ -1,0 +1,34 @@
+#!/bin/sh
+# beeOS arayüzünü Chrome kiosk modunda açar. Chrome kapanır/çökerse yeniden açar.
+PROFILE="$HOME/.config/beeos-chrome"
+mkdir -p "$PROFILE"
+
+# Arka uç hazır olana kadar bekle (en fazla ~15 sn)
+i=0
+while [ $i -lt 30 ] && ! curl -fs -o /dev/null -H 'X-BeeOS: 1' http://127.0.0.1:8080/api/info; do
+  sleep 0.5; i=$((i + 1))
+done
+
+while true; do
+  # Önceki çökmeden kalan "geri yüklensin mi" uyarısını engelle
+  sed -i 's/"exit_type":"Crashed"/"exit_type":"Normal"/; s/"exited_cleanly":false/"exited_cleanly":true/' \
+    "$PROFILE/Default/Preferences" 2>/dev/null
+  google-chrome-stable \
+    --user-data-dir="$PROFILE" \
+    --ozone-platform=wayland \
+    --kiosk \
+    --no-first-run \
+    --no-default-browser-check \
+    --noerrdialogs \
+    --disable-infobars \
+    --disable-session-crashed-bubble \
+    --disable-features=Translate,TranslateUI \
+    --password-store=basic \
+    --autoplay-policy=no-user-gesture-required \
+    --enable-features=VaapiVideoDecodeLinuxGL \
+    --remote-debugging-address=127.0.0.1 \
+    --remote-debugging-port=9222 \
+    --check-for-update-interval=31536000 \
+    "http://127.0.0.1:8080/"
+  sleep 1
+done

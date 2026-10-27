@@ -1,7 +1,7 @@
 // ES5 yazıldı: eski webOS (Chromium 38) uyumlu.
 (function () {
-  var APP_ID = "com.ozdem.beeos";
-  var VERSION = "0.3.0";
+  var APP_ID = "com.beeuptech.beeos";
+  var VERSION = "0.4.0";
   var STAGE_W = 1920, STAGE_H = 1080;
   var CARD_GAP = 28;
   var VISIBLE_RIGHT = 1920 - 160;
@@ -129,8 +129,19 @@
   }
 
   // ---------- veri modeli ----------
+  // Kart bu ortamda gösterilir mi? PC'de sadece web adresi olanlar ve özel kartlar.
+  function availableHere(it) {
+    var pc = Platform.name() === "pc";
+    if (it.only && it.only !== (pc ? "pc" : "tv")) { return false; }
+    return !pc || !!it.web || it.id.charAt(0) === "@";
+  }
+
   function computeModel() {
-    var defs = CONFIG.rows.slice();
+    var pc = Platform.name() === "pc";
+    var defs = CONFIG.rows.map(function (def) {
+      return { title: pc && def.pcTitle ? def.pcTitle : def.title, size: def.size,
+               items: def.items.filter(availableHere) };
+    });
     if (S.allApps && installed === "loading") {
       defs.push({ title: "Tüm Uygulamalar", size: "small", items: skeletonItems() });
     } else if (S.allApps && installed && installed.length) {
@@ -355,9 +366,18 @@
     S.usage[item.id] = (S.usage[item.id] || 0) + 1;
     save();
     if (item.id === "@settings") { openPanel(); return; }
+    if (item.id === "@wifi") { openWifi(); return; }
+    if (item.id === "@power") { openPower(); return; }
     Sound.play("select");
     showLoader(item);
-    if (typeof PalmServiceBridge === "undefined") {
+    if (Platform.name() === "pc") {
+      Platform.api("POST", "/api/launch", { id: item.id, url: item.web, ua: item.ua || "" }, function (res) {
+        if (!res || !res.ok) { launchFailed(item, res && res.error); return; }
+        if (Platform.mock()) { hideLoader(); toast("Test: " + item.name + " → " + item.web); }
+      });
+      return;
+    }
+    if (Platform.name() !== "tv") {
       // Tarayıcı testi: yükleme ekranını kısa süre göster
       loadTimer = setTimeout(function () {
         hideLoader();
@@ -366,12 +386,14 @@
       return;
     }
     luna("luna://com.webos.service.applicationmanager/launch", { id: item.id }, function (res) {
-      if (!res || res.returnValue === false) {
-        hideLoader();
-        Sound.play("error");
-        toast(item.name + " açılamadı" + (res && res.errorText ? ": " + res.errorText : ""));
-      }
+      if (!res || res.returnValue === false) { launchFailed(item, res && res.errorText); }
     });
+  }
+
+  function launchFailed(item, why) {
+    hideLoader();
+    Sound.play("error");
+    toast(item.name + " açılamadı" + (why ? ": " + why : ""));
   }
 
   // ---------- uygulama açılış ekranı ----------
@@ -403,18 +425,47 @@
   function openMenu() {
     var item = curItem(), i = rows[focusRow].index, n = model[focusRow].items.length;
     if (item.skeleton) { return; }
+    var opts = [];
+    if (i > 0) { opts.push({ label: "Sola taşı", run: function () { moveItem(-1); } }); }
+    if (i < n - 1) { opts.push({ label: "Sağa taşı", run: function () { moveItem(1); } }); }
+    if (i > 0) { opts.push({ label: "Başa taşı", run: function () { moveItem("first"); } }); }
+    if (item.id !== "@settings") { opts.push({ label: "Gizle", run: hideItem }); }
+    opts.push({ label: "Kapat", run: function () {} });
+    showMenu(item.name, opts);
+  }
+
+  // Ortada açılan seçim listesi. opts: [{ label, run }]
+  function showMenu(title, opts) {
+    pressCancel();
     Sound.play("open");
-    menuOpts = [];
-    if (i > 0) { menuOpts.push({ label: "Sola taşı", run: function () { moveItem(-1); } }); }
-    if (i < n - 1) { menuOpts.push({ label: "Sağa taşı", run: function () { moveItem(1); } }); }
-    if (i > 0) { menuOpts.push({ label: "Başa taşı", run: function () { moveItem("first"); } }); }
-    if (item.id !== "@settings") { menuOpts.push({ label: "Gizle", run: hideItem }); }
-    menuOpts.push({ label: "Kapat", run: function () {} });
+    menuOpts = opts;
     menuIdx = 0;
-    $("menuTitle").textContent = item.name;
+    $("menuTitle").textContent = title;
     renderMenu();
     mode = "menu";
     stage.classList.add("menu-open");
+  }
+
+  // ---------- PC: güç menüsü ----------
+  function openPower() {
+    function power(action, msg) {
+      return function () {
+        toast(msg);
+        Platform.api("POST", "/api/power", { action: action }, function (res) {
+          if (!res || !res.ok) { Sound.play("error"); toast("İşlem yapılamadı"); }
+        });
+      };
+    }
+    showMenu("Güç", [
+      { label: "Kapat", run: power("off", "Kapatılıyor…") },
+      { label: "Yeniden başlat", run: power("reboot", "Yeniden başlatılıyor…") },
+      { label: "Açık uygulamaları kapat", run: function () {
+        Platform.api("POST", "/api/apps/close", null, function (res) {
+          toast(res && res.ok ? (res.closed ? res.closed + " uygulama kapatıldı" : "Açık uygulama yok") : "İşlem yapılamadı");
+        });
+      } },
+      { label: "Vazgeç", run: function () {} }
+    ]);
   }
 
   function renderMenu() {
@@ -480,7 +531,9 @@
   var ON_OFF = { values: [true, false], names: ["Açık", "Kapalı"] };
   // group: panelde bu satırdan önce görünen bölüm başlığı
   var PANEL = [
-    { group: "Genel", key: "userName", label: "Kullanıcı adı", type: "text" },
+    { group: "Genel", label: "Kullanıcı adı", type: "text", max: 24, placeholder: "Adını yaz",
+      get: function () { return S.userName; },
+      set: function (v) { S.userName = v.replace(/^\s+|\s+$/g, "").slice(0, 24); save(); tick(); } },
     { key: "clock24", label: "Saat biçimi", values: [true, false], names: ["24 saat", "12 saat"] },
     { key: "saverMin", label: "Ekran koruyucu", values: [0, 5, 10, 30], names: ["Kapalı", "5 dk", "10 dk", "30 dk"] },
     { group: "Ses", key: "sounds", label: "Ses efektleri", values: ON_OFF.values, names: ON_OFF.names },
@@ -507,45 +560,68 @@
     { label: "Tüm ayarları sıfırla", type: "action", confirm: true, danger: true,
       run: function () { S = Store.reset(); applySettings(); renderRows(); toast("Tüm ayarlar sıfırlandı"); } }
   ];
-  var panelIdx = 0, confirmIdx = -1;
-  var nameInput = document.createElement("input");
-  nameInput.id = "nameInput";
-  nameInput.type = "text";
-  nameInput.maxLength = 24;
-  nameInput.placeholder = "Adını yaz";
-  nameInput.addEventListener("focus", function () { mode = "input"; });
-  nameInput.addEventListener("blur", function () { if (mode === "input") { commitName(true); } });
+  // Panel bir "görünüm" gösterir: { head (HTML), sub, foot, rows, back }. Satır tanımları:
+  //   { key, values, names }  S[key] değerini döndürür   { type: "text", get, set, next }  yazı kutusu
+  //   { type: "action", run, info, confirm, danger }      group: satırdan önceki bölüm başlığı
+  var panelIdx = 0, confirmIdx = -1, view = null;
+  var textInput = document.createElement("input");
+  textInput.id = "nameInput";
+  textInput.type = "text";
+  textInput.addEventListener("focus", function () { mode = "input"; });
+  textInput.addEventListener("blur", function () { if (mode === "input") { commitText(true); } });
 
-  function openPanel() {
+  function settingsView() {
+    var pc = Platform.name() === "pc";
+    return { head: "<b>bee</b>OS Ayarları",
+             rows: PANEL.filter(function (o) { return !(pc && o.key === "allApps"); }),
+             sub: "Yukarı/aşağı: seç · Sağ/sol veya OK: değiştir · Geri: kapat",
+             foot: "beeOS " + VERSION + "  ·  " + (pc
+               ? "F1: ayarlar  ·  Home / Windows tuşu: beeOS'a dön"
+               : "Kırmızı tuş: ayarlar  ·  OK'a basılı tut: kart menüsü") };
+  }
+
+  function openPanel(v) {
     pressCancel();
-    Sound.play("open");
+    if (mode !== "panel") { Sound.play("open"); }
+    mode = "panel";
+    showView(v || settingsView());
+    stage.classList.add("panel-open");
+  }
+
+  function showView(v) {
+    view = v;
     panelIdx = 0;
     confirmIdx = -1;
+    $("panelHead").innerHTML = v.head;
+    $("panelSub").textContent = v.sub || "Yukarı/aşağı: seç · OK: seç · Geri: kapat";
     renderPanel();
-    mode = "panel";
-    stage.classList.add("panel-open");
   }
 
   function closePanel() {
     Sound.play("close");
     mode = "home";
+    view = null;
     stage.classList.remove("panel-open");
   }
 
   function renderPanel() {
     var list = $("panelList");
-    var selEl = null;
+    var selEl = null, defs = view.rows;
+    panelIdx = Math.min(panelIdx, defs.length - 1);
     list.innerHTML = "";
-    for (var i = 0; i < PANEL.length; i++) {
-      var o = PANEL[i];
+    for (var i = 0; i < defs.length; i++) {
+      var o = defs[i];
       if (o.group) { list.appendChild(div("pgroup", o.group)); }
       var el = div("prow" + (i === panelIdx ? " sel" : "") + (o.danger ? " danger" : ""));
       if (i === panelIdx) { selEl = el; }
       el.appendChild(div("plabel", o.label));
       var val = div("pval");
       if (o.type === "text") {
-        nameInput.value = S.userName;
-        val.appendChild(nameInput);
+        textInput.type = o.secret ? "password" : "text";
+        textInput.maxLength = o.max || 64;
+        textInput.placeholder = o.placeholder || "";
+        textInput.value = o.get();
+        val.appendChild(textInput);
       } else if (o.type === "action") {
         val.textContent = confirmIdx === i ? "Emin misin? Tekrar OK" : (o.info ? o.info() : "");
         if (confirmIdx === i) { val.className = "pval warn"; }
@@ -563,7 +639,7 @@
     var off = bottom > viewH ? bottom - viewH : 0;
     if (panelIdx === 0) { off = 0; }
     setTransform(list, "translate3d(0," + (-off) + "px,0)");
-    $("panelFoot").textContent = "beeOS " + VERSION + "  ·  Kırmızı tuş: ayarlar  ·  OK'a basılı tut: kart menüsü";
+    $("panelFoot").textContent = view.foot || "";
   }
 
   function panelHover(i) {
@@ -572,9 +648,9 @@
 
   function panelClick(i) {
     return function (e) {
-      if (e.target === nameInput) { return; }
+      if (e.target === textInput) { return; }
       panelIdx = i;
-      activate(PANEL[i]);
+      activate(view.rows[i]);
     };
   }
 
@@ -592,36 +668,136 @@
 
   function activate(o) {
     if (o.type === "text") {
-      nameInput.focus();       // TV'de ekran klavyesi açılır
+      textInput.focus();       // TV'de ekran klavyesi açılır
     } else if (o.values) {
       cycle(o, 1);
     } else if (o.type === "action") {
       if (o.confirm && confirmIdx !== panelIdx) { confirmIdx = panelIdx; renderPanel(); return; }
       confirmIdx = -1;
       o.run();
-      renderPanel();
+      if (mode === "panel") { renderPanel(); }
     }
   }
 
-  function commitName(keep) {
+  // keep: yazılanı kaydet. Enter ile bitince satırın next() işlevi çalışır (örn. Wi-Fi'ye bağlan).
+  function commitText(keep, viaEnter) {
+    var o = view && view.rows[panelIdx];
     mode = "panel";
-    if (keep) {
-      S.userName = nameInput.value.replace(/^\s+|\s+$/g, "").slice(0, 24);
-      save();
-      tick();
-    }
-    nameInput.blur();
+    if (keep && o && o.type === "text") { o.set(textInput.value); }
+    textInput.blur();
+    if (!view) { return; }
+    if (viaEnter && o && o.next) { o.next(); return; }
     renderPanel();
   }
 
   function panelKey(k) {
+    var n = view.rows.length;
     if (k === 38) { panelIdx = Math.max(0, panelIdx - 1); confirmIdx = -1; renderPanel(); Sound.play("move"); }
-    else if (k === 40) { panelIdx = Math.min(PANEL.length - 1, panelIdx + 1); confirmIdx = -1; renderPanel(); Sound.play("move"); }
-    else if (k === 37 || k === 39) { if (PANEL[panelIdx].values) { cycle(PANEL[panelIdx], k === 39 ? 1 : -1); } }
-    else if (k === 13) { activate(PANEL[panelIdx]); }
-    else if (k === 461 || k === 27 || k === 8 || k === 403 || k === 112) { closePanel(); }
+    else if (k === 40) { panelIdx = Math.min(n - 1, panelIdx + 1); confirmIdx = -1; renderPanel(); Sound.play("move"); }
+    else if (k === 37 || k === 39) { if (view.rows[panelIdx].values) { cycle(view.rows[panelIdx], k === 39 ? 1 : -1); } }
+    else if (k === 13) { activate(view.rows[panelIdx]); }
+    else if (k === 461 || k === 27 || k === 8) { if (view.back) { Sound.play("back"); view.back(); } else { closePanel(); } }
+    else if ((k === 403 || k === 112) && !view.back) { closePanel(); }
     else { return false; }
     return true;
+  }
+
+  // ---------- PC: Wi-Fi ----------
+  var wifi = null, wifiBusy = "";   // son tarama sonucu; "" | "scan" | bağlanılan ağın adı
+
+  function openWifi() {
+    openPanel(wifiView());
+    scanWifi();
+  }
+
+  function wifiView() {
+    var defs = [
+      { group: "Bağlantı", label: "Durum", type: "action", run: function () {},
+        info: function () {
+          if (wifiBusy && wifiBusy !== "scan") { return wifiBusy + " · bağlanıyor…"; }
+          if (!wifi) { return wifiBusy ? "Kontrol ediliyor…" : "Bilinmiyor"; }
+          return wifi.current ? "Bağlı: " + wifi.current : "Bağlı değil";
+        } },
+      { label: "Ağları yeniden tara", type: "action", run: scanWifi,
+        info: function () { return wifiBusy === "scan" ? "Aranıyor…" : ""; } }
+    ];
+    var nets = (wifi && wifi.networks) || [];
+    for (var i = 0; i < nets.length; i++) { defs.push(netRow(nets[i], i === 0 ? "Ağlar" : null)); }
+    if (wifi && !nets.length) {
+      defs.push({ group: "Ağlar", label: "Ağ bulunamadı", type: "action", run: scanWifi });
+    }
+    return { head: "Wi-Fi", wifi: true, rows: defs, sub: "Yukarı/aşağı: seç · OK: bağlan · Geri: kapat",
+             foot: "Kayıtlı ağlara şifresiz bağlanılır. Şifreler sadece bu flash diskte saklanır." };
+  }
+
+  function netRow(net, group) {
+    var tags = [];
+    if (wifi.current === net.ssid) { tags.push("Bağlı"); }
+    else if (net.known) { tags.push("Kayıtlı"); }
+    tags.push(net.secure ? "Şifreli" : "Açık");
+    tags.push("%" + net.signal);
+    return { group: group, label: net.ssid, type: "action", info: function () { return tags.join(" · "); },
+             run: function () {
+               if (wifi.current === net.ssid) { toast(net.ssid + " ağına zaten bağlısın"); return; }
+               if (net.secure && !net.known) { showView(passwordView(net)); return; }
+               connectWifi(net.ssid, "");
+             } };
+  }
+
+  function passwordView(net) {
+    var pw = "";
+    function back() { showView(wifiView()); }
+    function go() {
+      if (pw.length < 8) { Sound.play("error"); toast("Şifre en az 8 karakter olmalı"); renderPanel(); return; }
+      connectWifi(net.ssid, pw);
+    }
+    return {
+      head: net.ssid, back: back, sub: "OK: şifreyi yaz · Enter: bağlan · Geri: ağ listesi",
+      foot: "Şifreyi klavyeyle yaz, sonra Enter'a bas.",
+      rows: [
+        { label: "Şifre", type: "text", secret: true, max: 63, placeholder: "Şifreyi yaz",
+          get: function () { return pw; }, set: function (v) { pw = v; }, next: go },
+        { label: "Bağlan", type: "action", run: go },
+        { label: "Vazgeç", type: "action", run: back }
+      ]
+    };
+  }
+
+  // Wi-Fi ekranı hâlâ açıksa yeni bilgiyle yeniden çiz (seçili satır korunur)
+  function refreshWifiView() {
+    if (mode !== "panel" || !view || !view.wifi) { return; }
+    var keep = panelIdx;
+    showView(wifiView());
+    panelIdx = keep;
+    renderPanel();
+  }
+
+  function scanWifi() {
+    if (wifiBusy) { return; }
+    wifiBusy = "scan";
+    refreshWifiView();
+    Platform.api("GET", "/api/wifi", null, function (res) {
+      wifiBusy = "";
+      if (res && res.networks) { wifi = res; } else { toast("Wi-Fi bilgisi alınamadı"); }
+      refreshWifiView();
+    });
+  }
+
+  function connectWifi(ssid, password) {
+    if (wifiBusy) { toast("Lütfen bekle…"); return; }
+    wifiBusy = ssid;
+    showView(wifiView());
+    Platform.api("POST", "/api/wifi/connect", { ssid: ssid, password: password }, function (res) {
+      wifiBusy = "";
+      if (res && res.ok) {
+        Sound.play("select");
+        toast(ssid + " ağına bağlanıldı");
+      } else {
+        Sound.play("error");
+        toast("Bağlanılamadı" + (res && res.error ? ": " + res.error : ""));
+      }
+      scanWifi();
+    });
   }
 
   function applySettings() {
@@ -686,8 +862,8 @@
       if (installed === "loading") { installed = null; renderRows(); }
     }
 
-    var mock = typeof PalmServiceBridge === "undefined" && /[?&]mock/.test(location.search);
-    if (typeof PalmServiceBridge === "undefined" && !mock) { return; }
+    var mock = Platform.name() === "web" && /[?&]mock/.test(location.search);
+    if (Platform.name() !== "tv" && !mock) { return; }
     installed = "loading";          // iskelet kartlar görünür
     renderRows();
     var giveUp = setTimeout(fail, 6000);
@@ -738,8 +914,8 @@
     }
     if (mode === "saver") { hideSaver(); e.preventDefault(); return; }
     if (mode === "input") {
-      if (k === 13) { commitName(true); }
-      else if (k === 461 || k === 27) { commitName(false); }
+      if (k === 13) { commitText(true, true); }
+      else if (k === 461 || k === 27) { commitText(false); }
       else { return; }               // diğer tuşlar yazıya gitsin
       e.preventDefault();
       return;
@@ -825,10 +1001,23 @@
     setTimeout(function () { stage.classList.add("ready"); }, 50);
   }
 
+  // PC'de alttaki ipucu satırı farklı tuşları anlatır
+  function pcHint() {
+    $("hint").innerHTML =
+      '<span class="key">Enter</span><span class="lbl">Aç</span>' +
+      '<span class="key">Enter basılı</span><span class="lbl">Düzenle</span>' +
+      '<span class="key">F1</span><span class="lbl">Ayarlar</span>' +
+      '<span class="key">Home</span><span class="lbl">Uygulamadan beeOS\'a dön</span>';
+  }
+
   renderRows();
   applySettings();
   startBoot();
-  loadInstalled();
+  // Ortam belli olunca (PC arka ucu cevap verirse) raflar o ortama göre yeniden çizilir
+  Platform.detect(function () {
+    if (Platform.name() === "pc") { pcHint(); renderRows(); }
+    loadInstalled();
+  });
   setInterval(tick, 15000);
 
   // Hata ayıklama için (ares-inspect konsolundan): __launcher.openPanel() vb.

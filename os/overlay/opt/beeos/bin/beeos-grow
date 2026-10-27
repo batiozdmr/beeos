@@ -1,0 +1,13 @@
+#!/bin/sh
+# İlk açılışta: imaj küçük üretilir; sistem bölümünü flash diskin tamamına büyütür. Bir kez çalışır.
+set -e
+ROOT=$(findmnt -n -o SOURCE /)
+DISK=/dev/$(lsblk -n -o PKNAME "$ROOT" | head -1)
+PART=$(cat /sys/class/block/$(basename "$ROOT")/partition)
+# Yedek GPT başlığını diskin sonuna taşı (imaj diskten küçük yazıldı)
+sgdisk -e "$DISK" || true
+partprobe "$DISK" 2>/dev/null || true
+growpart "$DISK" "$PART" || true
+resize2fs "$ROOT"
+mkdir -p /var/lib/beeos
+touch /var/lib/beeos/grown
