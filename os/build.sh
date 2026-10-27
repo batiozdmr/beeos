@@ -33,6 +33,7 @@ PKGS=(
   pipewire pipewire-pulse pipewire-alsa wireplumber alsa-ucm-conf
   fonts-noto-core fonts-noto-color-emoji fonts-dejavu-core
   # donanım yazılımları (Intel Wi-Fi/ses, Nvidia HDMI çıkışı)
+  firmware-intel-graphics wireless-regdb pciutils
   firmware-iwlwifi firmware-intel-sound firmware-sof-signed firmware-misc-nonfree
   firmware-nvidia-graphics firmware-realtek intel-microcode
   # beeOS arka ucu
@@ -95,7 +96,15 @@ id bee >/dev/null 2>&1 || useradd -m -s /bin/bash -G video,render,input,audio,ne
 passwd -l bee >/dev/null; passwd -l root >/dev/null
 chown -R bee:bee /home/bee
 
-command -v lspci >/dev/null || { apt-get update -qq && apt-get install -y -qq pciutils >/dev/null; }
+# önbellekteki eski kök sisteme sonradan eklenen paketler (Intel GPU firmware'i olmadan ekran siyah kalır)
+NEED=""
+for p in pciutils firmware-intel-graphics wireless-regdb; do dpkg -s $p >/dev/null 2>&1 || NEED="$NEED $p"; done
+[ -z "$NEED" ] || { apt-get update -qq && apt-get install -y -qq $NEED >/dev/null; }
+# Windows donanım saatini yerel saatte tutar; Linux da öyle okusun (yoksa saat 3 saat kayar)
+printf '0.0 0 0.0
+0
+LOCAL
+' > /etc/adjtime
 mkdir -p /mnt/beeos-log
 systemctl enable NetworkManager beeos-backend beeos-grow beeos-logdump.timer bluetooth >/dev/null 2>&1
 systemctl mask apt-daily.timer apt-daily-upgrade.timer man-db.timer e2scrub_all.timer >/dev/null 2>&1

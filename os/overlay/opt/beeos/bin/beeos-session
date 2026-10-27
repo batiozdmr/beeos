@@ -27,13 +27,28 @@ try_sway() {
   [ $(( $(date +%s) - start )) -gt 20 ]
 }
 
-try_sway tum-kartlar && exit 0
+# Harici ekran (TV) dahili karttan başka bir karta (laptopta Nvidia) bağlı mı?
+external_on_other_card() {
+  for st in /sys/class/drm/card[0-9]-HDMI-A-*/status /sys/class/drm/card[0-9]-DP-*/status; do
+    [ -f "$st" ] && [ "$(cat "$st")" = connected ] || continue
+    c=$(basename "$(dirname "$st")" | cut -d- -f1)
+    [ "/dev/dri/$c" != "$1" ] && return 0
+  done
+  return 1
+}
+
 card=$(primary_card)
+# Normalde sadece dahili kart (Intel): Nvidia sürücüsü (nouveau) yavaş açılıp takılabiliyor.
+# TV Nvidia'ya bağlı HDMI'dan takılıysa iki kart birlikte denenir.
+if [ -n "$card" ] && external_on_other_card "$card"; then
+  try_sway tum-kartlar && exit 0
+fi
 if [ -n "$card" ]; then
   export WLR_DRM_DEVICES="$card"
   try_sway "sadece-$(basename "$card")" && exit 0
   unset WLR_DRM_DEVICES
 fi
+try_sway tum-kartlar && exit 0
 export WLR_RENDERER=pixman
 try_sway yazilimsal && exit 0
 
