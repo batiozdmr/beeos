@@ -1,0 +1,12 @@
+{
+  "id": "com.beeuptech.beeos",
+  "version": "0.3.0",
+  "vendor": "ozdem",
+  "type": "web",
+  "main": "index.html",
+  "title": "beeOS",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "bgColor": "#0b0f1a",
+  "disableBackHistoryAPI": true
+}

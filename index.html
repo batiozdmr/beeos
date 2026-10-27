@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>beeOS</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="stage">
+  <div class="ambient" id="ambA"></div>
+  <div class="ambient" id="ambB"></div>
+  <div id="vignette"></div>
+
+  <div id="topbar">
+    <div id="brand">
+      <svg viewBox="0 0 80 92" width="40" height="46"><polygon points="40,3 77,24.5 77,67.5 40,89 3,67.5 3,24.5"/></svg>
+    </div>
+    <div id="greeting"></div>
+    <div id="date"></div>
+    <div id="time"></div>
+  </div>
+
+  <div id="hero" class="out">
+    <div id="heroIcon"></div>
+    <div id="heroLabel"></div>
+    <div id="heroTitle"></div>
+    <div id="heroBar"></div>
+    <div id="heroDesc"></div>
+  </div>
+
+  <div id="rows"></div>
+  <div id="fade"></div>
+  <div id="hint">
+    <span class="key">OK</span><span class="lbl">Aç</span>
+    <span class="key">OK basılı</span><span class="lbl">Düzenle</span>
+    <span class="key red">Kırmızı</span><span class="lbl">Ayarlar</span>
+    <span class="key">1-9</span><span class="lbl">Hızlı aç</span>
+  </div>
+
+  <!-- karartma + kart menüsü + ayar paneli -->
+  <div id="dim"></div>
+  <div id="menu">
+    <div id="menuTitle"></div>
+    <div id="menuList"></div>
+  </div>
+  <div id="panel">
+    <div id="panelHead"><b>bee</b>OS Ayarları</div>
+    <div id="panelSub">Yukarı/aşağı: seç · Sağ/sol veya OK: değiştir · Geri: kapat</div>
+    <div id="panelView"><div id="panelList"></div></div>
+    <div id="panelFoot"></div>
+  </div>
+
+  <!-- uygulama açılış ekranı -->
+  <div id="loader">
+    <div id="loaderBox">
+      <div id="loaderLogo"><div id="loaderIcon"></div></div>
+      <div id="loaderName"></div>
+      <div class="spinner"></div>
+    </div>
+  </div>
+
+  <!-- ekran koruyucu -->
+  <div id="saver">
+    <div id="saverInner">
+      <div id="saverTime"></div>
+      <div id="saverDate"></div>
+      <div id="saverBrand"><b>bee</b>OS</div>
+    </div>
+  </div>
+
+  <!-- açılış animasyonu: 6 petek hücresi saat yönünde belirir, ortaya arı konar -->
+  <div id="boot">
+    <div id="bootGlow"></div>
+    <div id="bootMark">
+      <div class="hx d1" style="left:65px;top:12px"><svg viewBox="0 0 80 92" width="80" height="92"><polygon points="40,3 77,24.5 77,67.5 40,89 3,67.5 3,24.5"/></svg></div>
+      <div class="hx d2" style="left:155px;top:12px"><svg viewBox="0 0 80 92" width="80" height="92"><polygon points="40,3 77,24.5 77,67.5 40,89 3,67.5 3,24.5"/></svg></div>
+      <div class="hx d3" style="left:199px;top:89px"><svg viewBox="0 0 80 92" width="80" height="92"><polygon points="40,3 77,24.5 77,67.5 40,89 3,67.5 3,24.5"/></svg></div>
+      <div class="hx d4" style="left:155px;top:166px"><svg viewBox="0 0 80 92" width="80" height="92"><polygon points="40,3 77,24.5 77,67.5 40,89 3,67.5 3,24.5"/></svg></div>
+      <div class="hx d5" style="left:65px;top:166px"><svg viewBox="0 0 80 92" width="80" height="92"><polygon points="40,3 77,24.5 77,67.5 40,89 3,67.5 3,24.5"/></svg></div>
+      <div class="hx d6" style="left:21px;top:89px"><svg viewBox="0 0 80 92" width="80" height="92"><polygon points="40,3 77,24.5 77,67.5 40,89 3,67.5 3,24.5"/></svg></div>
+      <div class="hx hc" style="left:110px;top:89px">
+        <svg viewBox="0 0 80 92" width="80" height="92">
+          <polygon points="40,3 77,24.5 77,67.5 40,89 3,67.5 3,24.5"/>
+          <g class="bee">
+            <ellipse cx="31" cy="38" rx="10" ry="6.5" fill="#fff" opacity="0.9" transform="rotate(-28 31 38)"/>
+            <ellipse cx="49" cy="38" rx="10" ry="6.5" fill="#fff" opacity="0.9" transform="rotate(28 49 38)"/>
+            <ellipse cx="40" cy="55" rx="11" ry="15" fill="#1a1200"/>
+            <rect x="29.5" y="50" width="21" height="3.6" fill="#ffc83d"/>
+            <rect x="30.5" y="58" width="19" height="3.6" fill="#ffc83d"/>
+          </g>
+        </svg>
+      </div>
+    </div>
+    <div id="bootName"><b>bee</b>OS</div>
+  </div>
+
+  <div id="toast"></div>
+</div>
+<script src="js/store.js"></script>
+<script src="js/sound.js"></script>
+<script src="js/config.js"></script>
+<script src="js/logos.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+Netflix, YouTube, Prime Video ve Spotify logoları hazır gelir (js/logos.js, Simple Icons, CC0).
+
+Başka bir uygulama için kendi logonu eklemek istersen:
+1. PNG dosyasını bu klasöre koy. Dosya adı = uygulama kimliği + .png  (kimlikler js/config.js içinde)
+     örn. com.disney.disneyplus-prod.png
+2. js/logos.js dosyasının sonundaki LOGO_FILES listesine kimliği ekle:
+     var LOGO_FILES = ["com.disney.disneyplus-prod"];
+
+Kare, en az 256x256 PNG önerilir. Listelenen PNG her şeyden önce kullanılır.
+Logo yoksa beeOS TV'deki gerçek uygulama ikonunu, o da yoksa çizgi ikonu gösterir.
+
+Simple Icons'tan logo eklemek için: SVG'yi indir, tools/build_logos.py içindeki SLUGS'a ekle ve betiği çalıştır.
