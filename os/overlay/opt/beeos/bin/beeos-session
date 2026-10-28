@@ -8,7 +8,10 @@ export WLR_RENDERER_ALLOW_SOFTWARE=1
 export WLR_NO_HARDWARE_CURSORS=1
 RUN=/run/user/$(id -u)
 
-say() { printf '\033[1;33mbeeOS:\033[0m %s\n' "$*"; echo "$(date +%T) $*" >> "$RUN/session.log"; }
+# Normalde sadece günlüğe yazar: açılış ekranının (plymouth) son karesi sway gelene kadar ekranda kalır.
+# Ekran hiç açılamazsa shout() konsola da yazar.
+say() { echo "$(date +%T) $*" >> "$RUN/session.log"; }
+shout() { printf '\033[1;33mbeeOS:\033[0m %s\n' "$*"; say "$*"; }
 
 # Dahili ekranı süren kart (boot_vga=1, genelde Intel)
 primary_card() {
@@ -52,6 +55,6 @@ try_sway tum-kartlar && exit 0
 export WLR_RENDERER=pixman
 try_sway yazilimsal && exit 0
 
-say "Ekran başlatılamadı. Günlükler flash diskteki BEEOS-LOG bölümüne yazıldı."
-say "Bilgisayarı kapatmak için güç tuşuna bas."
+shout "Ekran başlatılamadı. Günlükler flash diskteki BEEOS-LOG bölümüne yazıldı."
+shout "Bilgisayarı kapatmak için güç tuşuna bas."
 sleep 600

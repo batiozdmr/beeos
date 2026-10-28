@@ -1,0 +1,15 @@
+[Unit]
+Description=beeOS: Chrome ve ekran dosyalarını önceden RAM'e oku
+DefaultDependencies=no
+After=local-fs.target
+Before=sysinit.target
+
+[Service]
+# Açılışı bekletmez, arka planda okur
+Type=exec
+ExecStart=/opt/beeos/bin/beeos-preload
+IOSchedulingClass=best-effort
+IOSchedulingPriority=0
+
+[Install]
+WantedBy=sysinit.target

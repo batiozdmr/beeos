@@ -13,7 +13,9 @@ var Platform = (function () {
     var done = false;
     function end(res) { if (!done) { done = true; cb(res); } }
     x.open(method, path, true);
-    x.timeout = path.indexOf("/api/wifi") === 0 ? 30000 : 8000;
+    // Wi-Fi taraması, Bluetooth eşleştirme ve uygulama açılışı (sayfa yüklenene kadar bekler) uzun sürebilir
+    x.timeout = path.indexOf("/api/wifi") === 0 ? 30000 : path.indexOf("/api/bt/") === 0 ? 45000 :
+                path === "/api/launch" ? 20000 : 8000;
     x.onreadystatechange = function () {
       if (x.readyState !== 4) { return; }
       var res = null;
@@ -40,7 +42,34 @@ var Platform = (function () {
   // Tarayıcı testi için sahte PC arka ucu
   var Mock = {
     current: "Ev-WiFi",
+    remote: { ok: true, enabled: true, pin: "482913", urls: ["http://192.168.1.42:8081"] },
+    bt: { ok: true, powered: true, devices: [
+      { mac: "AA:BB:CC:00:00:01", name: "Kulaklık", paired: true, connected: true },
+      { mac: "AA:BB:CC:00:00:02", name: "Oyun kolu", paired: true, connected: false }] },
+    bluetooth: function (path, body) {
+      var bt = this.bt, d = null;
+      for (var i = 0; i < bt.devices.length; i++) { if (body && bt.devices[i].mac === body.mac) { d = bt.devices[i]; } }
+      if (path === "/api/bt/power") { bt.powered = body.on; }
+      if (path === "/api/bt/scan" && bt.devices.length < 3) {
+        bt.devices.push({ mac: "AA:BB:CC:00:00:03", name: "Salon hoparlörü", paired: false, connected: false });
+      }
+      if (path === "/api/bt/connect" && d) { d.paired = true; d.connected = true; }
+      if (path === "/api/bt/disconnect" && d) { d.connected = false; }
+      if (path === "/api/bt/remove" && d) { bt.devices.splice(bt.devices.indexOf(d), 1); }
+      return bt;
+    },
     answer: function (method, path, body) {
+      if (path === "/api/apps/open") {
+        return { ok: true, apps: { "youtube.leanback.v4": "Lofi hip hop radio - beats to relax/study to - YouTube" } };
+      }
+      if (path === "/api/status") { return { ok: true, online: true, name: this.current, remoteSeq: 0 }; }
+      if (path === "/api/remote") {
+        if (body && body.newPin) { this.remote.pin = String(100000 + Math.floor(Math.random() * 900000)); }
+        if (body && typeof body.enabled === "boolean") { this.remote.enabled = body.enabled; }
+        return this.remote;
+      }
+      if (path === "/api/photos") { return { ok: true, photos: [] }; }
+      if (path.indexOf("/api/bt") === 0) { return this.bluetooth(path, body); }
       if (path === "/api/wifi") {
         return { enabled: true, current: this.current, networks: [
           { ssid: "Ev-WiFi", signal: 82, secure: true, known: true },

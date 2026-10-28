@@ -1,0 +1,9 @@
+#!/bin/sh
+# Açılışın en başında Chrome'u, ekran sistemini ve ekran kartı kütüphanelerini RAM'e (sayfa önbelleği) okur.
+# Yavaş (USB 2.0) flash disklerde Chrome kendisi okurken rastgele erişim çok yavaş; burada sırayla,
+# tek seferde okunur ve Chrome açılırken dosyalar zaten RAM'de olur. Liste derlemede üretilir.
+LIST=/opt/beeos/preload.list
+[ -f "$LIST" ] || exit 0
+start=$(date +%s)
+xargs -a "$LIST" -d '\n' cat > /dev/null 2>&1
+echo "beeos-preload: $(wc -l < "$LIST") dosya RAM'e okundu, $(( $(date +%s) - start )) sn"

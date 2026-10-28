@@ -1,0 +1,14 @@
+[Unit]
+Description=beeOS: kapanışta RAM'deki Chrome profilini flash diske kaydet
+# Kapanışta bu servis, kullanıcı oturumu ve /run/user/1000 kapanmadan ÖNCE durur (ters sıra)
+After=local-fs.target user-runtime-dir@1000.service user@1000.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=/opt/beeos/bin/beeos-profile-sync
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

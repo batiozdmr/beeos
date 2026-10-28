@@ -19,6 +19,15 @@ SLUGS = {
     "spotify": "spotify-beehive",
 }
 
+# Simple Icons'ta olmayan markalar: elle cizilmis sade isaretler (beyaz, 24x24)
+EXTRA = {
+    # Disney+: kemer + arti isareti
+    "com.disney.disneyplus-prod": (
+        '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="#fff" '
+        'stroke-linecap="round"><path d="M2.5 16.5C4.5 8 14.5 4.5 21.5 9.5" stroke-width="1.6"/>'
+        '<path d="M16.5 11.5v8M12.5 15.5h8" stroke-width="2.2"/></svg>'),
+}
+
 PATH_RE = re.compile(r'<path[^>]*\sd="([^"]+)"')
 SAFE_D = re.compile(r"^[MmZzLlHhVvCcSsQqTtAa0-9.,\-\s]+$")
 
@@ -43,6 +52,9 @@ def main(src_dir):
         logos[app_id] = ('<svg viewBox="0 0 24 24" width="100%" height="100%" fill="#fff">'
                          + inner + "</svg>")
         print("eklendi:", slug, "->", app_id)
+    for app_id, svg in EXTRA.items():
+        logos.setdefault(app_id, svg)
+        print("eklendi (elle):", app_id)
 
     out = os.path.join(ROOT, "js", "logos.js")
     with open(out, "w", encoding="utf-8") as f:

@@ -19,6 +19,10 @@ cp /run/user/1000/*.log "$B/" 2>/dev/null
   done
   echo "== süreçler"
   ps -eo pid,user,etime,cmd | grep -E 'sway|chrome|beeos|python' | grep -v grep | cut -c1-200
+  echo "== Chrome profili (RAM / flash disk)"
+  du -sh /run/user/1000/chrome /home/bee/.config/beeos-chrome 2>&1
+  echo "== disk G/Ç (okunan/yazılan sektör)"
+  grep -E ' sd[a-z] ' /proc/diskstats | awk '{print $3": okunan "$6*512/1048576" MB, yazılan "$10*512/1048576" MB"}'
 } > "$B/drm.txt" 2>&1
 lspci -nnk > "$B/lspci.txt" 2>&1
 # en fazla 6 açılışın günlüğünü tut
