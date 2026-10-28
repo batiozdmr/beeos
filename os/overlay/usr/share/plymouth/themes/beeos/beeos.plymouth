@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=beeOS
+Description=beeOS açılış ekranı: petek ve arı
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/beeos
+ScriptFile=/usr/share/plymouth/themes/beeos/beeos.script

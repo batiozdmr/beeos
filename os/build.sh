@@ -29,9 +29,11 @@ PKGS=(
   # ağ ve bluetooth
   network-manager wpasupplicant iproute2 iputils-ping bluez
   # ekran ve ses
-  sway xwayland libgl1-mesa-dri libegl1 mesa-vulkan-drivers intel-media-va-driver
+  sway xwayland wtype libgl1-mesa-dri libegl1 mesa-vulkan-drivers intel-media-va-driver
   pipewire pipewire-pulse pipewire-alsa wireplumber alsa-ucm-conf
   fonts-noto-core fonts-noto-color-emoji fonts-dejavu-core
+  # markalı açılış ekranı
+  plymouth plymouth-themes
   # donanım yazılımları (Intel Wi-Fi/ses, Nvidia HDMI çıkışı)
   firmware-intel-graphics wireless-regdb pciutils rsync
   firmware-iwlwifi firmware-intel-sound firmware-sof-signed firmware-misc-nonfree
@@ -66,9 +68,11 @@ $CP /src/os/overlay/. "$R/"
 rm -rf "$R/opt/beeos/web"
 mkdir -p "$R/opt/beeos/web"
 $CP /src/index.html /src/css /src/js /src/logos /src/icon.png /src/largeIcon.png "$R/opt/beeos/web/"
-$CP /src/os/backend/beeos_server.py "$R/opt/beeos/bin/"
+$CP /src/os/backend/beeos_server.py /src/os/backend/remote.html "$R/opt/beeos/bin/"
 chmod -R u=rwX,go=rX "$R/opt/beeos" "$R/etc/systemd" "$R/etc/opt" "$R/home/bee"
 chmod 755 "$R"/opt/beeos/bin/*
+chmod 644 "$R/opt/beeos/bin/remote.html"
+chmod -R u=rwX,go=rX "$R/usr/share/plymouth/themes/beeos"
 
 cat > "$R/etc/fstab" <<EOF
 UUID=$ROOT_UUID  /          ext4  noatime,commit=60,errors=remount-ro  0 1
@@ -94,11 +98,12 @@ echo 'KEYMAP=trq' > /etc/vconsole.conf
 # kullanıcı: bee (şifresiz, sadece tty1 otomatik giriş). root kilitli.
 id bee >/dev/null 2>&1 || useradd -m -s /bin/bash -G video,render,input,audio,netdev,bluetooth bee
 passwd -l bee >/dev/null; passwd -l root >/dev/null
+mkdir -p /home/bee/Resimler      # ekran koruyucu fotoğrafları (BEEOS-LOG/Fotograflar da okunur)
 chown -R bee:bee /home/bee
 
 # önbellekteki eski kök sisteme sonradan eklenen paketler (Intel GPU firmware'i olmadan ekran siyah kalır)
 NEED=""
-for p in pciutils firmware-intel-graphics wireless-regdb rsync; do dpkg -s $p >/dev/null 2>&1 || NEED="$NEED $p"; done
+for p in pciutils firmware-intel-graphics wireless-regdb rsync plymouth plymouth-themes wtype; do dpkg -s $p >/dev/null 2>&1 || NEED="$NEED $p"; done
 [ -z "$NEED" ] || { apt-get update -qq && apt-get install -y -qq $NEED >/dev/null; }
 # Windows donanım saatini yerel saatte tutar; Linux da öyle okusun (yoksa saat 3 saat kayar)
 printf '0.0 0 0.0
@@ -120,6 +125,9 @@ systemctl enable NetworkManager beeos-backend beeos-grow.timer beeos-logdump.tim
 systemctl mask apt-daily.timer apt-daily-upgrade.timer man-db.timer e2scrub_all.timer >/dev/null 2>&1
 systemctl set-default multi-user.target >/dev/null
 
+# markalı açılış ekranı (initramfs'e girer; aşağıdaki update-initramfs ile)
+plymouth-set-default-theme beeos
+
 # kernel /vmlinuz ve /initrd.img bağlantıları GRUB için
 KVER=$(ls /lib/modules | sort -V | tail -1)
 ln -sf "boot/vmlinuz-$KVER" /vmlinuz
@@ -138,12 +146,13 @@ log "EFI bölümü (shim + imzalı GRUB)"
 KVER=$(ls "$R/lib/modules" | sort -V | tail -1)
 GRUBCFG=/work/grub.cfg
 cat > "$GRUBCFG" <<EOF
-set timeout=3
-set timeout_style=menu
+# Menü gizli: açılış doğrudan beeOS'a gider. Açılırken Esc'ye basmak menüyü (güvenli mod) gösterir.
+set timeout=2
+set timeout_style=hidden
 search --no-floppy --fs-uuid --set=root $ROOT_UUID
 # nouveau (açık kaynak Nvidia sürücüsü) RTX 40 serisinde çöküp açılışı kilitliyor: varsayılan kapalı
 menuentry "beeOS" {
-  linux /vmlinuz root=UUID=$ROOT_UUID ro loglevel=4 modprobe.blacklist=nouveau systemd.show_status=true
+  linux /vmlinuz root=UUID=$ROOT_UUID ro quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 modprobe.blacklist=nouveau systemd.show_status=auto
   initrd /initrd.img
 }
 menuentry "beeOS (deneme: Nvidia nouveau açık)" {
@@ -171,8 +180,10 @@ LOGIMG=/work/log.img
 rm -f "$LOGIMG"
 mkfs.vfat -F 32 -n BEEOS-LOG -i "$LOG_ID" -C "$LOGIMG" $((LOG_MB * 1024)) >/dev/null
 printf 'beeOS teşhis günlükleri. Her açılış ayrı klasöre yazılır.
+Fotograflar klasörüne koyduğun fotoğraflar ekran koruyucuda (Stil: Fotoğraflar) gösterilir.
 ' > /work/BENIOKU.txt
 mcopy -i "$LOGIMG" /work/BENIOKU.txt ::/BENIOKU.txt
+mmd -i "$LOGIMG" ::/Fotograflar
 
 log "Sistem bölümü (ext4)"
 USED_MB=$(du -sm "$R" | cut -f1)

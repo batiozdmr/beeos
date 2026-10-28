@@ -19,18 +19,19 @@
     <div id="greeting"></div>
     <div id="date"></div>
     <div id="time"></div>
+    <div id="status"><span class="si"></span><span id="statusText"></span></div>
   </div>
 
   <div id="hero" class="out">
-    <div id="heroIcon"></div>
+    <div id="heroIcon"><div id="heroIconIn"></div></div>
     <div id="heroLabel"></div>
     <div id="heroTitle"></div>
     <div id="heroBar"></div>
     <div id="heroDesc"></div>
+    <div id="heroMeta"></div>
   </div>
 
   <div id="rows"></div>
-  <div id="fade"></div>
   <div id="hint">
     <span class="key">OK</span><span class="lbl">Aç</span>
     <span class="key">OK basılı</span><span class="lbl">Düzenle</span>
@@ -51,6 +52,13 @@
     <div id="panelFoot"></div>
   </div>
 
+  <!-- ekran klavyesi: kumandayla yazı -->
+  <div id="osk">
+    <div id="oskTitle"></div>
+    <div id="oskField"><span id="oskText"></span><span id="oskCaret"></span></div>
+    <div id="oskKeys"></div>
+  </div>
+
   <!-- uygulama açılış ekranı -->
   <div id="loader">
     <div id="loaderBox">
@@ -62,10 +70,16 @@
 
   <!-- ekran koruyucu -->
   <div id="saver">
+    <div class="flow-layer" id="saverFlowA"></div>
+    <div class="flow-layer" id="saverFlowB"></div>
+    <div id="saverHive"></div>
+    <img class="photo-layer" id="saverPhotoA" alt="">
+    <img class="photo-layer" id="saverPhotoB" alt="">
     <div id="saverInner">
       <div id="saverTime"></div>
       <div id="saverDate"></div>
       <div id="saverBrand"><b>bee</b>OS</div>
+      <div id="saverNote"></div>
     </div>
   </div>
 

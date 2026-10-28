@@ -4,7 +4,7 @@
 $root = Split-Path -Parent $PSScriptRoot
 $name = "beeos-vm"
 if (-not (docker ps -q -f "name=^$name$")) {
-  docker run -d --rm --name $name --privileged `
+  docker run -d --rm --init --name $name --privileged `
     -v beeos-work:/work -v "${root}:/src:ro" -v "$(Join-Path $root 'build'):/out" `
     debian:trixie sleep infinity | Out-Null
 }

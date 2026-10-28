@@ -1,0 +1,27 @@
+#!/bin/sh
+# Chrome profili RAM'de (/run/user/1000/chrome) çalışır: flash diske sürekli yazmasın diye.
+# Bu betik profili flash diske kaydeder (önbellekler hariç). Girişler (Netflix, YouTube) ve
+# beeOS ayarları böylece kalıcı olur.
+#   beeos-profile-sync         bir kez kaydet (kapanışta systemd çağırır)
+#   beeos-profile-sync loop    5 dakikada bir kaydet (oturumda çalışır)
+RAMP=/run/user/1000/chrome
+PERSIST=/home/bee/.config/beeos-chrome
+
+save() {
+  [ -f "$RAMP/.loaded" ] || return 0
+  mkdir -p "$PERSIST"
+  rsync -a --delete \
+    --exclude=.loaded --exclude='Singleton*' --exclude='*.tmp' \
+    --exclude=Cache/ --exclude='Code Cache/' --exclude=GPUCache/ --exclude=GrShaderCache/ \
+    --exclude=ShaderCache/ --exclude=GraphiteDawnCache/ --exclude=DawnGraphiteCache/ --exclude=DawnWebGPUCache/ \
+    --exclude=CacheStorage/ --exclude=ScriptCache/ --exclude=component_crx_cache/ --exclude=Crashpad/ \
+    --exclude='OptimizationGuide*/' --exclude=optimization_guide_model_store/ --exclude=OnDeviceHeadSuggestModel/ \
+    "$RAMP/" "$PERSIST/"
+  sync -f "$PERSIST" 2>/dev/null
+}
+
+if [ "${1:-}" = loop ]; then
+  while sleep 300; do nice -n 19 ionice -c3 "$0"; done
+else
+  save
+fi

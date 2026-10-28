@@ -7,14 +7,20 @@ TV için hızlı, sade ana ekran. Saf HTML/CSS/JS (ES5), eski webOS ile uyumlu. 
 
 ## Özellikler
 - Petek temalı açılış animasyonu ve açılış sesi (arı vızıltısıyla)
-- Netflix, YouTube, Prime Video, Spotify marka logoları (Simple Icons, CC0)
+- Netflix, YouTube, Prime Video, Spotify marka logoları (Simple Icons, CC0), Disney+ için elle çizilmiş işaret
 - Hero alanı + raflar, odaklanan uygulamaya göre renk değiştiren arka plan
+- Hero'da büyük marka ikonu ve içerik satırı: PC'de açık sekmenin başlığı ("Devam et"), yoksa son açılış
+- Odak açılışta en son açılan uygulamada başlar; rafta ekran dışında kart varsa kenarda ok görünür
 - Açılış animasyonu, uygulama açılış ekranı, yükleme sırasında iskelet kartlar
+- **Arama** ("Ara" kartı; PC'de ana ekranda harf yazmak yeter): yazılanı seçilen uygulamada arar
+- **Ekran klavyesi**: kumandayla yazı (Wi-Fi şifresi, kullanıcı adı, arama). Fiziksel klavye de yazar
+- Bağlantı göstergesi ve bildirimi (internet kopunca / gelince)
 - Ses efektleri (Web Audio ile üretilir, dosya yok), açma/kapama ve ses düzeyi
-- beeOS ayarları paneli (Kırmızı tuş veya "beeOS" kartı)
+- beeOS ayarları paneli (Kırmızı tuş veya "beeOS" kartı); sıfırlama işlemleri onay ister
+- Erişilebilirlik: büyük yazı, yüksek kontrast, tuş ipuçları (ilk açılışlarda / hep / gizli)
 - Kart menüsü (OK'a basılı tut veya Yeşil tuş): sola/sağa/başa taşı, gizle
 - Yüklü uygulamalar rafı (TV'den otomatik), TV'deki gerçek uygulama logoları
-- Ekran koruyucu (panel izine karşı hareket eden saat)
+- Ekran koruyucu (panel izine karşı hareket eden saat): Saat, Petek, Renk akışı, Fotoğraflar (PC)
 - 1-9 tuşları: ilk raftaki uygulamayı doğrudan açar
 - Ayarlar kalıcı (localStorage)
 
@@ -55,9 +61,24 @@ ares-inspect --device tv com.beeuptech.beeos --open   # hata ayıklama
 Debian 13 + sway (kiosk) + Google Chrome. Açılışta masaüstü yok, doğrudan tam ekran beeOS gelir.
 Kartlar web sürümlerini açar (YouTube TV arayüzü, Netflix, Prime, Disney+, Spotify).
 **Home**, **Windows** veya **F12** tuşu açık uygulamadan beeOS'a döner.
-PC'de ek kartlar: **Wi-Fi** (ağ seç, şifre gir) ve **Güç** (kapat, yeniden başlat, açık uygulamaları kapat).
+PC'de ek kartlar: **Wi-Fi** (ağ seç, şifre gir), **Güç** (kapat, yeniden başlat, açık uygulamaları kapat)
+ve **Telefon** (telefon kumandası).
+Ayarlar panelindeki **Bağlantılar** bölümü: Wi-Fi, **Bluetooth** (aç/kapat, cihaz ara, şifresiz eşleştir ve bağlan,
+bağlantıyı kes, unut; `bluetoothctl`) ve telefon kumandası. TV'de bu satır TV'nin kendi ağ ayarlarını açar.
 
-- `os/backend/beeos_server.py`  arka uç: arayüzü sunar, Chrome sekmelerini (DevTools, 127.0.0.1:9222) yönetir, Wi-Fi (nmcli), güç
+- Açılış: GRUB menüsü gizli (açılırken **Esc** menüyü ve güvenli modu gösterir), çekirdek yazıları yerine
+  beeOS açılış ekranı (plymouth, `os/overlay/usr/share/plymouth/themes/beeos`, logo `tools/make_icons.py` ile).
+- Uygulamalar arka planda açılır; sayfa yüklenene kadar beeOS'un yükleme ekranı görünür, Geri ile vazgeçilir.
+- **Telefon kumandası**: telefon aynı ağdayken `http://<PC'nin IP'si>:8081` adresini açar, TV'deki
+  **Telefon** kartında görünen 6 haneli PIN'i girer. Yön tuşları, OK, Geri, beeOS'a dön, ses, oynat/duraklat,
+  yazı gönderme (telefon klavyesinin mikrofonuyla sesle yazma). PIN `/var/lib/beeos/remote.json`'da durur;
+  10 hatalı denemede 5 dk kilitlenir. Kart üzerinden kapatılabilir, yeni PIN üretilebilir.
+- **Fotoğraflı ekran koruyucu**: flash diskin `BEEOS-LOG` bölümündeki `Fotograflar` klasörü (Windows'ta açılır,
+  bölüm 64 MB) veya `/home/bee/Resimler`.
+
+- `os/backend/beeos_server.py`  arka uç: arayüzü sunar, Chrome sekmelerini (DevTools, 127.0.0.1:9222) yönetir,
+  Wi-Fi (nmcli), güç, bağlantı durumu, fotoğraflar, telefon kumandası (8081)
+- `os/backend/remote.html`  telefon kumandası sayfası
 - `os/overlay/`  sisteme olduğu gibi kopyalanan dosyalar (otomatik giriş, sway, Chrome politikaları, servisler)
 - `os/build.sh`  imaj üretimi (Docker içinde): Secure Boot uyumlu (shim + imzalı GRUB), GPT, ext4
 

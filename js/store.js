@@ -9,13 +9,19 @@ var Store = (function () {
     heroDesc: true,      // üst alandaki açıklama metni
     sort: "manual",      // "manual" | "usage" (sadece ilk raf)
     saverMin: 10,        // ekran koruyucu dakikası, 0 = kapalı
+    saverStyle: "clock", // "clock" | "hive" | "flow" | "photos" (sadece PC)
     allApps: true,       // "Tüm Uygulamalar" rafı
     sounds: true,        // arayüz ses efektleri
     volume: 0.5,         // efekt ses düzeyi (0.25 - 1)
     boot: true,          // açılış animasyonu
+    textSize: "normal",  // "normal" | "large"
+    contrast: false,     // yüksek kontrast
+    hints: "auto",       // tuş ipuçları: "auto" (ilk açılışlarda) | "on" | "off"
+    hintRuns: 0,         // kaç kez açıldı ("auto" ipuçları için)
     order: {},           // { rafBaşlığı: [id, id, ...] }
     hidden: [],          // gizlenen kart kimlikleri
-    usage: {}            // { id: açılma sayısı }
+    usage: {},           // { id: açılma sayısı }
+    lastOpen: {}         // { id: son açılış zamanı (ms) }
   };
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }

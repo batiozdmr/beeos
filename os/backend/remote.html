@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#07090f">
+<title>beeOS Kumanda</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #07090f; color: #fff;
+               font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  body { display: flex; flex-direction: column; align-items: center; padding: 20px 16px 28px;
+         -webkit-user-select: none; user-select: none; }
+  h1 { margin: 6px 0 18px; font-size: 22px; font-weight: 300; }
+  h1 b { color: #ffc83d; font-weight: 800; }
+  .hidden { display: none !important; }
+  #pair { width: 100%; max-width: 360px; text-align: center; }
+  #pair p { opacity: 0.6; line-height: 1.5; }
+  input { width: 100%; padding: 14px 16px; border-radius: 14px; border: 2px solid #2a3142;
+          background: #10141f; color: #fff; font-size: 18px; outline: none; }
+  input:focus { border-color: #ffc83d; }
+  #pin { font-size: 30px; letter-spacing: 10px; text-align: center; }
+  button { border: 0; border-radius: 16px; background: #1a2030; color: #fff; font-size: 17px;
+           font-weight: 600; cursor: pointer; touch-action: manipulation; }
+  button:active { background: #2a3245; transform: scale(0.96); }
+  .primary { background: #ffc83d; color: #1a1200; }
+  .primary:active { background: #e6b030; }
+  #pairBtn { width: 100%; height: 54px; margin-top: 14px; }
+  #msg { min-height: 22px; margin-top: 12px; color: #ff8a8a; }
+  #remote { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 18px; }
+  .row { display: flex; gap: 12px; }
+  .row button { flex: 1; height: 56px; }
+  #pad { position: relative; width: 280px; height: 280px; margin: 4px auto; border-radius: 50%;
+         background: #10141f; border: 1px solid #1f2636; }
+  #pad button { position: absolute; width: 84px; height: 84px; background: transparent; font-size: 30px; }
+  #pad button:active { background: #1f2636; }
+  #pad .up { left: 98px; top: 6px; } #pad .down { left: 98px; bottom: 6px; }
+  #pad .left { left: 6px; top: 98px; } #pad .right { right: 6px; top: 98px; }
+  #pad .ok { left: 80px; top: 80px; width: 120px; height: 120px; border-radius: 50%;
+             background: #ffc83d; color: #1a1200; font-size: 22px; }
+  #pad .ok:active { background: #e6b030; }
+  .text { display: flex; gap: 10px; }
+  .text input { flex: 1; }
+  .text button { width: 86px; }
+  .hint { font-size: 13px; opacity: 0.45; text-align: center; line-height: 1.5; }
+  #status { min-height: 18px; font-size: 13px; text-align: center; color: #ff8a8a; }
+</style>
+</head>
+<body>
+<h1><b>bee</b>OS Kumanda</h1>
+
+<div id="pair" class="hidden">
+  <p>TV'de <b>Telefon</b> kartını aç ve orada görünen 6 haneli PIN'i yaz.</p>
+  <input id="pin" type="tel" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••">
+  <button id="pairBtn" class="primary">Bağlan</button>
+  <div id="msg"></div>
+</div>
+
+<div id="remote" class="hidden">
+  <div class="row">
+    <button data-key="back">‹ Geri</button>
+    <button data-key="home">⌂ beeOS</button>
+  </div>
+  <div id="pad">
+    <button class="up" data-key="up" aria-label="Yukarı">▲</button>
+    <button class="left" data-key="left" aria-label="Sol">◀</button>
+    <button class="ok" data-key="ok">OK</button>
+    <button class="right" data-key="right" aria-label="Sağ">▶</button>
+    <button class="down" data-key="down" aria-label="Aşağı">▼</button>
+  </div>
+  <div class="row">
+    <button data-key="voldown" aria-label="Sesi azalt">🔉 −</button>
+    <button data-key="playpause" aria-label="Oynat / duraklat">⏯</button>
+    <button data-key="mute" aria-label="Sessiz">🔇</button>
+    <button data-key="volup" aria-label="Sesi artır">🔊 +</button>
+  </div>
+  <div class="text">
+    <input id="text" type="text" placeholder="Yaz ya da 🎤 ile söyle" autocomplete="off" enterkeyhint="send">
+    <button id="send" class="primary">Gönder</button>
+  </div>
+  <div class="hint">Ana ekranda yazı göndermek aramayı başlatır. Telefon klavyesindeki mikrofonla sesle yazabilirsin.</div>
+  <div id="status"></div>
+</div>
+
+<script>
+(function () {
+  var KEY = "beeos.remote.pin";
+  var pin = "";
+  try { pin = localStorage.getItem(KEY) || ""; } catch (e) {}
+
+  function $(id) { return document.getElementById(id); }
+
+  function call(path, body, cb) {
+    var x = new XMLHttpRequest();
+    x.open("POST", path, true);
+    x.timeout = 8000;
+    x.setRequestHeader("Content-Type", "application/json");
+    x.setRequestHeader("X-BeeOS-PIN", pin);
+    x.onreadystatechange = function () {
+      if (x.readyState !== 4) { return; }
+      var res = null;
+      try { res = JSON.parse(x.responseText); } catch (e) {}
+      cb(x.status, res || {});
+    };
+    x.ontimeout = function () { cb(0, {}); };
+    x.send(JSON.stringify(body || {}));
+  }
+
+  function show(which) {
+    $("pair").className = which === "pair" ? "" : "hidden";
+    $("remote").className = which === "remote" ? "" : "hidden";
+  }
+
+  // PIN geçersiz olunca (TV'de yeni PIN üretildi) eşleşme ekranına dön
+  function handle(status, res) {
+    if (status === 401) {
+      try { localStorage.removeItem(KEY); } catch (e) {}
+      pin = "";
+      show("pair");
+      $("msg").textContent = "PIN değişmiş. TV'deki yeni PIN'i yaz.";
+      return false;
+    }
+    $("status").textContent = status === 200 && res.ok !== false ? "" :
+      (res.error || "beeOS'a ulaşılamadı. Aynı ağda mısın?");
+    return status === 200;
+  }
+
+  function pair() {
+    pin = $("pin").value.replace(/\D/g, "");
+    if (pin.length !== 6) { $("msg").textContent = "PIN 6 haneli olmalı"; return; }
+    $("msg").textContent = "Bağlanıyor…";
+    call("/api/pair", null, function (status, res) {
+      if (status === 200 && res.ok) {
+        try { localStorage.setItem(KEY, pin); } catch (e) {}
+        $("msg").textContent = "";
+        show("remote");
+      } else {
+        $("msg").textContent = res.error || "beeOS'a ulaşılamadı";
+      }
+    });
+  }
+
+  function press(key) {
+    if (navigator.vibrate) { navigator.vibrate(12); }
+    call("/api/key", { key: key }, handle);
+  }
+
+  function sendText() {
+    var t = $("text").value;
+    if (!t) { return; }
+    call("/api/text", { text: t }, function (status, res) {
+      if (handle(status, res)) { $("text").value = ""; }
+    });
+  }
+
+  var btns = document.querySelectorAll("[data-key]");
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].addEventListener("click", (function (k) { return function () { press(k); }; })(btns[i].getAttribute("data-key")));
+  }
+  $("pairBtn").addEventListener("click", pair);
+  $("pin").addEventListener("keydown", function (e) { if (e.keyCode === 13) { pair(); } });
+  $("send").addEventListener("click", sendText);
+  $("text").addEventListener("keydown", function (e) { if (e.keyCode === 13) { sendText(); } });
+
+  show(pin ? "remote" : "pair");
+})();
+</script>
+</body>
+</html>

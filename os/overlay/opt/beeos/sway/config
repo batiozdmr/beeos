@@ -1,7 +1,7 @@
 # beeOS kiosk: tek pencere, tam ekran Chrome. Pencere süsü, çubuk, masaüstü yok.
 
 # Chrome açılana kadar beeOS logosu görünsün
-output * bg /opt/beeos/web/largeIcon.png center #0b0f1a
+output * bg /opt/beeos/web/largeIcon.png center #07090f
 default_border none
 default_floating_border none
 focus_follows_mouse no
