@@ -33,7 +33,7 @@ PKGS=(
   pipewire pipewire-pulse pipewire-alsa wireplumber alsa-ucm-conf
   fonts-noto-core fonts-noto-color-emoji fonts-dejavu-core
   # donanım yazılımları (Intel Wi-Fi/ses, Nvidia HDMI çıkışı)
-  firmware-intel-graphics wireless-regdb pciutils
+  firmware-intel-graphics wireless-regdb pciutils rsync
   firmware-iwlwifi firmware-intel-sound firmware-sof-signed firmware-misc-nonfree
   firmware-nvidia-graphics firmware-realtek intel-microcode
   # beeOS arka ucu
@@ -98,7 +98,7 @@ chown -R bee:bee /home/bee
 
 # önbellekteki eski kök sisteme sonradan eklenen paketler (Intel GPU firmware'i olmadan ekran siyah kalır)
 NEED=""
-for p in pciutils firmware-intel-graphics wireless-regdb; do dpkg -s $p >/dev/null 2>&1 || NEED="$NEED $p"; done
+for p in pciutils firmware-intel-graphics wireless-regdb rsync; do dpkg -s $p >/dev/null 2>&1 || NEED="$NEED $p"; done
 [ -z "$NEED" ] || { apt-get update -qq && apt-get install -y -qq $NEED >/dev/null; }
 # Windows donanım saatini yerel saatte tutar; Linux da öyle okusun (yoksa saat 3 saat kayar)
 printf '0.0 0 0.0
@@ -106,7 +106,17 @@ printf '0.0 0 0.0
 LOCAL
 ' > /etc/adjtime
 mkdir -p /mnt/beeos-log
-systemctl enable NetworkManager beeos-backend beeos-grow beeos-logdump.timer bluetooth >/dev/null 2>&1
+# eski sürüm büyütmeyi açılışta yapıyordu (açılışı 2 dk yavaşlatıyordu); artık zamanlayıcıyla sonradan
+rm -f /etc/systemd/system/multi-user.target.wants/beeos-grow.service
+# Açılışta RAM'e önceden okunacak dosyalar: Chrome, ekran sistemi, Intel/Mesa sürücüleri ve bağımlılıkları
+L=/usr/lib/x86_64-linux-gnu
+{ find /opt/google/chrome -type f
+  ls $L/dri/*.so $L/libgallium* $L/libEGL_mesa* $L/libgbm* $L/libva* 2>/dev/null
+  for b in /opt/google/chrome/chrome /opt/google/chrome/*.so /usr/bin/sway /usr/bin/swaybg $L/dri/*.so $L/libgallium*; do
+    ldd "$b" 2>/dev/null | awk '/=> \//{print $3}'
+  done; } | xargs -r readlink -f | sort -u > /opt/beeos/preload.list
+echo "preload: $(wc -l < /opt/beeos/preload.list) dosya, $(tr '\n' '\0' < /opt/beeos/preload.list | du -cb --files0-from=- | tail -1 | cut -f1 | numfmt --to=iec)"
+systemctl enable NetworkManager beeos-backend beeos-grow.timer beeos-logdump.timer beeos-preload beeos-profile-save bluetooth >/dev/null 2>&1
 systemctl mask apt-daily.timer apt-daily-upgrade.timer man-db.timer e2scrub_all.timer >/dev/null 2>&1
 systemctl set-default multi-user.target >/dev/null
 
@@ -131,12 +141,13 @@ cat > "$GRUBCFG" <<EOF
 set timeout=3
 set timeout_style=menu
 search --no-floppy --fs-uuid --set=root $ROOT_UUID
+# nouveau (açık kaynak Nvidia sürücüsü) RTX 40 serisinde çöküp açılışı kilitliyor: varsayılan kapalı
 menuentry "beeOS" {
-  linux /vmlinuz root=UUID=$ROOT_UUID ro loglevel=4 systemd.show_status=true
+  linux /vmlinuz root=UUID=$ROOT_UUID ro loglevel=4 modprobe.blacklist=nouveau systemd.show_status=true
   initrd /initrd.img
 }
-menuentry "beeOS (Nvidia kapalı, sadece laptop ekranı)" {
-  linux /vmlinuz root=UUID=$ROOT_UUID ro modprobe.blacklist=nouveau systemd.show_status=true
+menuentry "beeOS (deneme: Nvidia nouveau açık)" {
+  linux /vmlinuz root=UUID=$ROOT_UUID ro systemd.show_status=true
   initrd /initrd.img
 }
 menuentry "beeOS (güvenli mod, ekran kartı sürücüsüz)" {

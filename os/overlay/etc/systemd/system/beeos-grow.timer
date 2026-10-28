@@ -1,0 +1,10 @@
+[Unit]
+Description=beeOS: açılış bitip ekran geldikten sonra sistem bölümünü büyüt
+ConditionPathExists=!/var/lib/beeos/grown
+
+[Timer]
+# Açılışı yavaşlatmasın diye beeOS ekranı geldikten sonra çalışır
+OnBootSec=4min
+
+[Install]
+WantedBy=timers.target

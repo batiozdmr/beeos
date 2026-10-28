@@ -6,6 +6,18 @@ param([switch]$Rebuild)
 # Docker bilgi mesajlarını stderr'e yazar; hata kontrolü $LASTEXITCODE ile
 $root = Split-Path -Parent $PSScriptRoot
 New-Item -ItemType Directory -Force (Join-Path $root "build") | Out-Null
+# Docker Desktop kapalıysa başlat ve hazır olmasını bekle (bilgisayar yeniden başlayınca kapanıyor)
+docker version 2>$null | Out-Null
+if ($LASTEXITCODE -ne 0) {
+  "Docker Desktop başlatılıyor…"
+  Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+  for ($i = 0; $i -lt 100; $i++) {
+    Start-Sleep 3
+    docker volume ls 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { break }
+  }
+  if ($LASTEXITCODE -ne 0) { throw "Docker başlamadı" }
+}
 docker volume create beeos-work | Out-Null
 docker run --rm --privileged `
   -e REBUILD=$([int]$Rebuild.IsPresent) `
