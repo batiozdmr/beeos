@@ -1,0 +1,38 @@
+name: Hata bildirimi
+description: beeOS'ta bir şey beklendiği gibi çalışmıyor
+labels: ["hata"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: beeOS sürümü
+      description: Ayarlar panelinin altında yazar (ör. 0.5.0)
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Nerede?
+      options:
+        - Flash disk (PC)
+        - LG webOS TV
+        - VirtualBox / sanal makine
+        - Tarayıcı (?pc)
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: Ne oldu, ne bekliyordun?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Tekrar etme adımları
+      placeholder: "1. Ayarlar'ı aç\n2. ..."
+  - type: textarea
+    id: logs
+    attributes:
+      label: Günlükler
+      description: Flash diskte BEEOS-LOG bölümündeki son klasör (session.log, journal.txt) veya ekran görüntüsü

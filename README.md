@@ -5,7 +5,8 @@ TV için hızlı, sade ana ekran. Saf HTML/CSS/JS (ES5), eski webOS ile uyumlu. 
 - **Flash diskten açılan sistem** olarak: PC'yi HDMI ile TV'ye bağla, flash diskle aç, doğrudan beeOS gelir
   (bkz. *Flash disk (PC) sürümü*)
 
-Açık kaynaklıdır: [MIT lisansı](LICENSE). Katkı ve sürüm çıkarma: [CONTRIBUTING.md](CONTRIBUTING.md).
+Açık kaynaklıdır: [MIT lisansı](LICENSE). Katkı ve sürüm çıkarma: [CONTRIBUTING.md](CONTRIBUTING.md),
+davranış kuralları: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), güvenlik bildirimi: [SECURITY.md](SECURITY.md).
 
 ## Özellikler
 - Petek temalı açılış animasyonu ve açılış sesi (arı vızıltısıyla)
