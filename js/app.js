@@ -1,7 +1,7 @@
 // ES5 yazıldı: eski webOS (Chromium 38) uyumlu.
 (function () {
   var APP_ID = "com.beeuptech.beeos";
-  var VERSION = "0.4.0";
+  var VERSION = "";        // appinfo.json'dan okunur: sürüm numarasının tek kaynağı
   var STAGE_W = 1920, STAGE_H = 1080;
   var CARD_GAP = 28;
   var VISIBLE_RIGHT = 1920 - 160;
@@ -863,6 +863,12 @@
     { label: "Telefon kumandası", type: "action", only: "pc",
       info: function () { return !remoteInfo ? "" : remoteInfo.enabled ? "Açık" : "Kapalı"; },
       run: function () { fromSettingsRow(openRemote); } },
+    { label: "TV'ye bağlan (HDMI)", type: "action", only: "pc",
+      info: function () { return displaySummary(); },
+      run: function () { fromSettingsRow(openDisplay); } },
+    { group: "Sistem", label: "Güncellemeleri kontrol et", type: "action", only: "pc",
+      info: function () { return updateSummary(); },
+      run: function () { fromSettingsRow(openUpdate); } },
     { group: "Bağlantılar", label: "Ağ ve Bluetooth", type: "action", only: "tv",
       info: function () { return "TV ayarlarında açılır"; },
       run: function () { closePanel(); launch(findItem("com.palm.app.settings") || TV_SETTINGS); } },
@@ -925,6 +931,17 @@
     open();
   }
 
+  function loadVersion() {
+    if (Platform.info().version) { VERSION = Platform.info().version; return; }
+    var x = new XMLHttpRequest();
+    x.open("GET", "appinfo.json", true);
+    x.onreadystatechange = function () {
+      if (x.readyState !== 4) { return; }
+      try { VERSION = JSON.parse(x.responseText).version || ""; } catch (e) {}
+    };
+    x.send();
+  }
+
   function settingsView() {
     var pc = Platform.name() === "pc";
     return { head: "<b>bee</b>OS Ayarları", settings: true,
@@ -950,7 +967,7 @@
 
   function showView(v) {
     view = v;
-    panelIdx = 0;
+    panelIdx = v.start || 0;
     confirmIdx = -1;
     $("panelHead").innerHTML = v.head;
     $("panelSub").textContent = v.sub || "Yukarı/aşağı: seç · OK: seç · Geri: kapat";
@@ -970,6 +987,7 @@
     var selEl = null, defs = view.rows;
     panelIdx = Math.min(panelIdx, defs.length - 1);
     list.innerHTML = "";
+    if (view.note) { list.appendChild(div("pnote", view.note)); }
     for (var i = 0; i < defs.length; i++) {
       var o = defs[i];
       if (o.group) { list.appendChild(div("pgroup", o.group)); }
@@ -1194,6 +1212,266 @@
           run: function () { loadRemote({ newPin: true }); } }
       ]
     });
+  }
+
+  // ---------- PC: güncellemeler (GitHub Releases) ----------
+  // Arka uç son sürümü GitHub'dan sorar; kurulumda paketi indirir, doğrular, kurar ve beeOS'u yeniden açar.
+  var upd = null, updErr = "", updChecking = false, updTimer = null;
+  var UPD_BUSY = { download: "İndiriliyor", install: "Kuruluyor…", restart: "beeOS yeniden açılıyor…" };
+
+  function updateSummary() {
+    if (upd && upd.available) { return "Yeni sürüm: " + upd.latest; }
+    return VERSION ? "Sürüm " + VERSION : "";
+  }
+
+  function openUpdate() {
+    openPanel(updateView());
+    Platform.api("GET", "/api/update", null, function (res) {
+      if (res && res.ok && UPD_BUSY[res.state]) { setUpdate(res); } else { checkUpdate(); }
+    });
+  }
+
+  function checkUpdate() {
+    if (updChecking || (upd && UPD_BUSY[upd.state])) { return; }
+    updChecking = true;
+    updErr = "";
+    refreshView("update", updateView);
+    Platform.api("POST", "/api/update/check", null, function (res) {
+      updChecking = false;
+      setUpdate(res);
+    });
+  }
+
+  function installUpdate() {
+    if (!upd || !upd.available || UPD_BUSY[upd.state]) { return; }
+    updErr = "";
+    upd.state = "download";
+    upd.progress = 0;
+    refreshView("update", updateView);
+    Platform.api("POST", "/api/update/install", null, setUpdate);
+  }
+
+  function setUpdate(res) {
+    var wasBusy = upd && UPD_BUSY[upd.state], wasAvail = upd && upd.available;
+    if (res && res.ok) {
+      upd = res;
+      updErr = res.state === "error" ? res.error : "";
+      if (updErr) { Sound.play("error"); }
+    } else if (!(wasBusy && upd.state === "restart")) {
+      // yeniden başlarken arka uç kısa süre cevap vermez: hata sayılmaz
+      updErr = res && res.error ? res.error : "Güncelleme bilgisi alınamadı";
+      if (wasBusy) { upd.state = "error"; }
+    }
+    clearTimeout(updTimer);
+    if (upd && UPD_BUSY[upd.state]) {
+      updTimer = setTimeout(function () { Platform.api("GET", "/api/update", null, setUpdate); }, 1000);
+    }
+    if (mode === "panel" && view && view.update && !wasAvail && upd && upd.available) {
+      showView(updateView());   // yeni sürüm bulundu: seçim "kur" satırına gelsin
+    } else {
+      refreshView("update", updateView);
+    }
+    refreshView("settings", settingsView);
+  }
+
+  function updateView() {
+    var u = upd, busy = u && UPD_BUSY[u.state], avail = !busy && u && u.available;
+    function noop() {}
+    var rows = [
+      { group: "Sürüm", label: "Yüklü sürüm", type: "action", run: noop,
+        info: function () { return u ? u.current : VERSION; } },
+      { label: "Son sürüm", type: "action", run: noop,
+        info: function () { return updChecking ? "Kontrol ediliyor…" : u && u.latest ? u.latest : "…"; } }
+    ];
+    if (busy) {
+      rows.push({ group: "Kurulum", label: busy, type: "action", big: true, run: noop,
+                  info: function () { return u.state === "download" ? "%" + u.progress : ""; } });
+    } else if (avail) {
+      rows.push({ group: "Kurulum", label: "beeOS " + u.latest + " sürümünü kur", type: "action", big: true,
+                  info: function () { return u.size ? (u.size / 1048576).toFixed(1).replace(".", ",") + " MB" : ""; },
+                  run: installUpdate });
+    }
+    if (!busy) {
+      rows.push({ group: avail ? null : "Kurulum", label: "Tekrar kontrol et", type: "action", run: checkUpdate,
+                  info: function () { return u && u.latest && !u.available && !updErr ? "beeOS güncel" : ""; } });
+    }
+    var note = updErr ? "Hata: " + updErr
+      : busy ? "Güncelleme kurulurken bilgisayarı kapatma. Bitince ekran kendiliğinden yenilenir."
+      : avail && u.notes ? u.notes : "";
+    var v = withBack({
+      head: "Güncellemeler", update: true, rows: rows, note: note,
+      sub: "OK: seç · Geri: kapat",
+      foot: "Güncellemeler GitHub'daki beeOS sürümlerinden (Releases) indirilir ve doğrulanarak kurulur."
+    });
+    // seçim kurulum satırında başlasın
+    v.start = avail ? 2 : 0;
+    return v;
+  }
+
+  // ---------- PC: TV / ekran (HDMI) ----------
+  // HDMI takılınca arka uç beeOS'u öne getirir; burada TV algılanır ve bağlantı ekranı açılır.
+  // TV seçilince görüntü TV'ye geçer ve onay istenir: onaylanmazsa (TV'de görüntü yoksa) geri dönülür.
+  var disp = null, dispBusy = "", dispSeq = 0, dispFresh = false;
+  var dispAsked = {};          // bağlantı ekranı kendiliğinden bir kez açılır (kablo çıkıp takılınca yine)
+  var confirmLeft = 0, confirmTimer = null;
+
+  function dispOut(name) {
+    var outs = (disp && disp.outputs) || [];
+    for (var i = 0; i < outs.length; i++) { if (outs[i].name === name) { return outs[i]; } }
+    return null;
+  }
+
+  function displaySummary() {
+    var outs = (disp && disp.outputs) || [];
+    var cur = outs.filter(function (o) { return o.current; })[0];
+    if (!cur) { return ""; }
+    if (!cur.internal) { return "TV'de · " + cur.label; }
+    return outs.some(function (o) { return !o.internal; }) ? "TV bağlı · seç" : "Laptop ekranı";
+  }
+
+  function pollDisplay() {
+    if (Platform.name() !== "pc" || document.hidden || dispBusy) { return; }
+    var seq = dispSeq;
+    Platform.api("GET", "/api/display", null, function (res) {
+      if (seq === dispSeq && res && res.outputs) { setDisplay(res); }
+    });
+  }
+
+  function setDisplay(res) {
+    disp = res;
+    if (res.failed) { Sound.play("error"); toast(res.failed + " girişindeki ekran açılamadı. Kabloyu çıkarıp yeniden tak."); }
+    if (res.confirm && !confirmTimer) { startConfirm(res.confirm); }
+    else if (!res.confirm && confirmTimer) { endConfirm(); showView(displayView()); }
+    // Yeni takılan TV: görüntü hâlâ laptopta ise bağlantı ekranını kendiliğinden aç
+    var cur = res.outputs.filter(function (o) { return o.current; })[0];
+    var present = {}, fresh = null;
+    res.outputs.forEach(function (o) {
+      if (o.internal) { return; }
+      present[o.name] = true;
+      if (cur && !cur.internal) { dispAsked[o.name] = true; }
+      else if (cur && !dispAsked[o.name] && !fresh) { fresh = o; }
+    });
+    for (var n in dispAsked) { if (!present[n]) { delete dispAsked[n]; } }
+    if (fresh && !confirmTimer && (mode === "home" || mode === "saver")) {
+      dispAsked[fresh.name] = true;
+      if (mode === "saver") { hideSaver(); }
+      dispFresh = true;
+      openPanel(displayView());
+      return;
+    }
+    refreshView("display", displayView);
+  }
+
+  function openDisplay() {
+    dispFresh = false;
+    openPanel(displayView());
+    pollDisplay();
+  }
+
+  function displayView() {
+    var outs = (disp && disp.outputs) || [];
+    var ext = outs.filter(function (o) { return !o.internal; });
+    var defs = ext.map(function (o, i) { return screenRow(o, i === 0 ? "TV ve monitörler" : null); });
+    if (!ext.length) {
+      defs.push({ group: "TV ve monitörler", label: disp ? "TV bulunamadı" : "Aranıyor…", type: "action", run: pollDisplay,
+                  info: function () { return "HDMI kablosunu tak"; } });
+    }
+    outs.forEach(function (o) { if (o.internal) { defs.push(screenRow(o, "Bu bilgisayar")); } });
+    return withBack({
+      head: dispFresh ? "TV algılandı" : "TV'ye bağlan", display: true, rows: defs,
+      note: dispFresh ? "HDMI kablosu takıldı. beeOS'u TV'de açmak için aşağıdan TV'yi seç." : "",
+      sub: "Yukarı/aşağı: seç · OK: görüntüyü buraya aktar · Geri: kapat",
+      foot: "TV'de görüntü çıkmazsa TV kumandasından doğru HDMI girişini seç."
+    });
+  }
+
+  function screenRow(o, group) {
+    return { group: group, label: o.label, type: "action",
+             info: function () {
+               return dispBusy === o.name ? "Bağlanıyor…" : o.current ? "Görüntü burada" : o.port + "  ·  Bağlan";
+             },
+             run: function () {
+               if (o.current && !o.internal) { toast("Görüntü zaten " + o.label + " ekranında"); return; }
+               useDisplay(o);
+             } };
+  }
+
+  function useDisplay(o) {
+    if (dispBusy) { return; }
+    dispBusy = o.name;
+    dispSeq++;
+    refreshView("display", displayView);
+    Platform.api("POST", "/api/display/use", { name: o.name }, function (res) {
+      dispBusy = "";
+      if (res && res.restarting) {
+        // TV diğer ekran kartında: oturum tüm kartlarla yeniden açılır, sonra onay ekranı gelir
+        toast("Görüntü TV'ye aktarılıyor. Ekran birkaç saniye kararabilir…");
+        return;
+      }
+      if (!res || !res.ok) {
+        Sound.play("error");
+        toast((res && res.error) || "Görüntü aktarılamadı");
+        refreshView("display", displayView);
+        return;
+      }
+      if (res.confirm) { startConfirm(res.confirm); } else { pollDisplay(); }
+    });
+  }
+
+  function startConfirm(c) {
+    var o = dispOut(c.name);
+    var label = o ? o.label : "TV";
+    confirmLeft = c.left;
+    clearInterval(confirmTimer);
+    confirmTimer = setInterval(function () {
+      confirmLeft--;
+      if (confirmLeft <= 0) { revertDisplay(); return; }
+      refreshView("dispConfirm", function () { return confirmView(label); });
+    }, 1000);
+    if (mode === "saver") { hideSaver(); }
+    Sound.play("open");
+    if (mode === "panel") { showView(confirmView(label)); } else { openPanel(confirmView(label)); }
+  }
+
+  function endConfirm() {
+    clearInterval(confirmTimer);
+    confirmTimer = null;
+    dispSeq++;
+  }
+
+  function confirmView(label) {
+    return {
+      head: "Görüntü TV'de mi?", dispConfirm: true, back: revertDisplay,
+      note: "Bu yazıyı " + label + " ekranında görüyorsan onayla. Onaylamazsan " + confirmLeft +
+            " saniye sonra önceki ekrana dönülür.",
+      sub: "OK: onayla · Geri: önceki ekrana dön",
+      rows: [
+        { label: "Evet, TV'de kalsın", type: "action", run: keepDisplay,
+          info: function () { return confirmLeft + " sn"; } },
+        { label: "Hayır, önceki ekrana dön", type: "action", run: revertDisplay }
+      ]
+    };
+  }
+
+  function keepDisplay() {
+    endConfirm();
+    Platform.api("POST", "/api/display/keep", null, function () { pollDisplay(); });
+    Sound.play("select");
+    showView({
+      head: "TV'ye bağlandı", sub: "OK veya Geri: kapat", back: closePanel,
+      note: "Laptop kullanıyorsan ekranını kapatabilirsin. Kapak kapalıyken beeOS TV'de çalışmaya devam eder.",
+      foot: "HDMI kablosu çıkarılınca görüntü kendiliğinden laptop ekranına döner.",
+      rows: [{ label: "Tamam", type: "action", run: closePanel }]
+    });
+  }
+
+  function revertDisplay() {
+    endConfirm();
+    Platform.api("POST", "/api/display/revert", null, function () { pollDisplay(); });
+    Sound.play("back");
+    toast("Önceki ekrana dönüldü");
+    dispFresh = false;
+    showView(displayView());
   }
 
   // ---------- PC: Bluetooth ----------
@@ -1573,9 +1851,49 @@
     }
     refreshOpen();
     pollStatus();
+    pollDisplay();
   }
   document.addEventListener("visibilitychange", function () { onVisibility(document.hidden); });
   document.addEventListener("webkitvisibilitychange", function () { onVisibility(document.webkitHidden); });
+
+  // ---------- telefon kumandası komutları (PC) ----------
+  // Kumanda uygulama açınca / arayınca bu iş beeOS üzerinden yapılır: yükleme ekranı görünür, kullanım
+  // sırası güncellenir. Arka uç cevabı komut gelene kadar bekletir; kart listesi de bu istekle gider.
+  function remoteCatalog() {
+    var out = [];
+    model.forEach(function (row) {
+      row.items.forEach(function (it) {
+        if (!it.skeleton) {
+          out.push({ id: it.id, name: it.name, sub: it.sub || it.cat, colors: it.colors, search: !!it.search });
+        }
+      });
+    });
+    return out;
+  }
+
+  function runRemote(c) {
+    var item = findItem(c.id);
+    if (!item) { return; }
+    resetIdle();
+    // Açık katmanları kapat (klavye panelden açılmış olabilir)
+    for (var i = 0; i < 3 && mode !== "home" && mode !== "loading"; i++) {
+      if (mode === "saver") { hideSaver(); }
+      else if (mode === "boot") { finishBoot(); }
+      else if (mode === "osk") { finishOsk(false); }
+      else if (mode === "panel") { closePanel(); }
+      else if (mode === "menu") { closeMenu(); }
+    }
+    if (mode !== "home") { return; }
+    if (c.type === "search" && item.search && c.q) { searchIn(item, c.q); } else { launch(item); }
+  }
+
+  function remoteLoop() {
+    Platform.api("POST", "/api/remote/wait", { apps: remoteCatalog() }, function (res) {
+      if (res && res.cmds) { res.cmds.forEach(runRemote); }
+      // Başarıda hemen yeniden bekle (arka plandaki sekmede zamanlayıcılar kısılır)
+      if (res) { remoteLoop(); } else { setTimeout(remoteLoop, 5000); }
+    });
+  }
 
   // ---------- açılış ----------
   // boot: petek hücreleri sırayla belirir, ortadaki hücrede arı konar, "beeOS" yazısı gelir,
@@ -1617,10 +1935,18 @@
   startBoot();
   // Ortam belli olunca (PC arka ucu cevap verirse) raflar o ortama göre yeniden çizilir
   Platform.detect(function () {
-    if (Platform.name() === "pc") { pcHint(); renderRows(); refreshOpen(); }
+    loadVersion();
+    if (Platform.name() === "pc") {
+      pcHint(); renderRows(); refreshOpen();
+      if (!Platform.mock()) { remoteLoop(); }
+    }
     loadInstalled();
     pollStatus();
     setInterval(pollStatus, 20000);
+    if (Platform.name() === "pc") {
+      pollDisplay();
+      setInterval(pollDisplay, 4000);   // HDMI takılınca bağlantı ekranı açılsın
+    }
   });
   setInterval(tick, 15000);
 

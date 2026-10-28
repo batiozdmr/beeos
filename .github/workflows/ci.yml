@@ -1,0 +1,26 @@
+# Her push ve pull request'te sözdizimi kontrolleri ve güncelleme paketinin üretilebildiği denenir.
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Kontroller
+        run: |
+          python -m py_compile os/backend/beeos_server.py tools/*.py
+          for f in js/*.js os/backend/osd.js; do node --check "$f"; done
+          for f in os/*.sh os/overlay/opt/beeos/bin/beeos-*; do bash -n "$f"; done
+
+      - name: Güncelleme paketi
+        run: python tools/release.py pack

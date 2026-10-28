@@ -67,12 +67,19 @@ CP="cp -r --no-preserve=mode,ownership"
 $CP /src/os/overlay/. "$R/"
 rm -rf "$R/opt/beeos/web"
 mkdir -p "$R/opt/beeos/web"
-$CP /src/index.html /src/css /src/js /src/logos /src/icon.png /src/largeIcon.png "$R/opt/beeos/web/"
-$CP /src/os/backend/beeos_server.py /src/os/backend/remote.html "$R/opt/beeos/bin/"
+$CP /src/index.html /src/appinfo.json /src/css /src/js /src/logos /src/icon.png /src/largeIcon.png "$R/opt/beeos/web/"
+$CP /src/os/backend/beeos_server.py /src/os/backend/remote.html /src/os/backend/osd.js "$R/opt/beeos/bin/"
 chmod -R u=rwX,go=rX "$R/opt/beeos" "$R/etc/systemd" "$R/etc/opt" "$R/home/bee"
 chmod 755 "$R"/opt/beeos/bin/*
-chmod 644 "$R/opt/beeos/bin/remote.html"
+chmod 644 "$R/opt/beeos/bin/remote.html" "$R/opt/beeos/bin/osd.js"
 chmod -R u=rwX,go=rX "$R/usr/share/plymouth/themes/beeos"
+# Deneme imajı: güncellemeler GitHub yerine bilgisayardaki deneme sunucusundan (tools/release.py serve)
+rm -f "$R/etc/beeos/update.json"
+if [ -n "${UPDATE_API:-}" ]; then
+  mkdir -p "$R/etc/beeos"
+  printf '{"api": "%s"}
+' "$UPDATE_API" > "$R/etc/beeos/update.json"
+fi
 
 cat > "$R/etc/fstab" <<EOF
 UUID=$ROOT_UUID  /          ext4  noatime,commit=60,errors=remount-ro  0 1
