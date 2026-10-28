@@ -224,6 +224,8 @@ def power(action):
 
 # ---------- HTTP ----------
 class Handler(http.server.SimpleHTTPRequestHandler):
+    ui_seen = False
+
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=WEB_ROOT, **kw)
 
@@ -267,6 +269,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         b = self.body() if method == "POST" else {}
         try:
             if method == "GET" and path == "/api/info":
+                # Teşhis: beeOS arayüzü (Chrome'dan gelen ilk istek) açılıştan kaç saniye sonra yüklendi
+                if not Handler.ui_seen and "Chrome" in (self.headers.get("User-Agent") or ""):
+                    Handler.ui_seen = True
+                    log("arayüz yüklendi, açılıştan %.0f sn sonra" % float(open("/proc/uptime").read().split()[0]))
                 res = {"platform": "pc", "version": VERSION}
             elif method == "GET" and path == "/api/wifi":
                 res = wifi_list()

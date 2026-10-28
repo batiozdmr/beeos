@@ -14,5 +14,8 @@
   "DefaultSearchProviderSearchURL": "https://www.google.com/search?q={searchTerms}",
   "AutoplayAllowed": true,
   "PasswordManagerEnabled": true,
-  "RemoteDebuggingAllowed": true
+  "RemoteDebuggingAllowed": true,
+  "GenAILocalFoundationalModelSettings": 1,
+  "BackgroundModeEnabled": false,
+  "ComponentUpdatesEnabled": true
 }
