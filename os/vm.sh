@@ -20,11 +20,14 @@ case "${1:-}" in
     rm -f $W/disk.qcow2
     qemu-img create -q -f qcow2 -b /out/beeos.img -F raw $W/disk.qcow2 8G
     cp /usr/share/OVMF/OVMF_VARS_4M.ms.fd $W/vars.fd
+    # SLOW=1: ucuz USB 2.0 flash disk gibi yavaş disk (okuma 25 MB/sn, yazma 10 MB/sn, az IOPS)
+    THROTTLE=""
+    [ "${SLOW:-0}" = 1 ] && THROTTLE=",throttling.bps-read=25000000,throttling.bps-write=10000000,throttling.iops-total=300"
     qemu-system-x86_64 -enable-kvm -machine q35,smm=on -cpu host -m 4096 -smp 4 \
       -global driver=cfi.pflash01,property=secure,value=on \
       -drive if=pflash,format=raw,unit=0,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd \
       -drive if=pflash,format=raw,unit=1,file=$W/vars.fd \
-      -device qemu-xhci -drive if=none,id=stick,format=qcow2,file=$W/disk.qcow2 \
+      -device qemu-xhci -drive if=none,id=stick,format=qcow2,file=$W/disk.qcow2$THROTTLE \
       -device usb-storage,drive=stick,removable=on \
       -device virtio-vga,xres=1920,yres=1080 -device usb-kbd -device usb-tablet \
       -nic user,model=virtio-net-pci \
