@@ -1,11 +1,10 @@
 [Unit]
 Description=beeOS: sistem bölümünü flash diskin tamamına büyüt
 ConditionPathExists=!/var/lib/beeos/grown
-After=local-fs.target
 
 [Service]
 Type=oneshot
+# Büyütme yavaş flash disklerde dakikalarca diski meşgul eder: düşük öncelikle çalışsın
+Nice=19
+IOSchedulingClass=idle
 ExecStart=/opt/beeos/bin/beeos-grow
-
-[Install]
-WantedBy=multi-user.target
