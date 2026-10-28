@@ -1181,6 +1181,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         super().end_headers()
 
+    def send_head(self):
+        # Güncelleme paketindeki dosyaların tarihi hep 1970 (tools/release.py pack): tarihle "değişmedi" (304)
+        # denirse Chrome yeni sürümden sonra da eski arayüzü kullanır. Dosyalar yerelde, her seferinde gönderilir.
+        del self.headers["If-Modified-Since"]
+        return super().send_head()
+
     def host_ok(self):
         return self.headers.get("Host") in ("127.0.0.1:%d" % PORT, "localhost:%d" % PORT)
 
