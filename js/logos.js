@@ -10,4 +10,4 @@ var LOGOS = {
 
 // logos/ klasorune koydugun PNG'lerin uygulama kimlikleri (orn. "netflix" -> logos/netflix.png).
 // Listedeki dosyalar her seyden once kullanilir.
-var LOGO_FILES = [];
+var LOGO_FILES = ["netflix", "com.disney.disneyplus-prod"];

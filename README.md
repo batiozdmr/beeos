@@ -5,6 +5,8 @@ TV için hızlı, sade ana ekran. Saf HTML/CSS/JS (ES5), eski webOS ile uyumlu. 
 - **Flash diskten açılan sistem** olarak: PC'yi HDMI ile TV'ye bağla, flash diskle aç, doğrudan beeOS gelir
   (bkz. *Flash disk (PC) sürümü*)
 
+Açık kaynaklıdır: [MIT lisansı](LICENSE). Katkı ve sürüm çıkarma: [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Özellikler
 - Petek temalı açılış animasyonu ve açılış sesi (arı vızıltısıyla)
 - Netflix, YouTube, Prime Video, Spotify marka logoları (Simple Icons, CC0), Disney+ için elle çizilmiş işaret
@@ -47,7 +49,7 @@ python -m http.server 8080
 ```
 ares-setup-device            # TV'yi ekle (ad: tv, IP, port 9922, kullanıcı prisoner)
 ares-package .               # .ipk üretir
-ares-install --device tv com.beeuptech.beeos_0.4.0_all.ipk
+ares-install --device tv com.beeuptech.beeos_<sürüm>_all.ipk   # sürüm: appinfo.json
 ares-launch  --device tv com.beeuptech.beeos
 ares-inspect --device tv com.beeuptech.beeos --open   # hata ayıklama
 ```
@@ -94,3 +96,40 @@ bağlantıyı kes, unut; `bluetoothctl`) ve telefon kumandası. TV'de bu satır 
 - Açılış: HP'de açılırken **F9** > flash disk. Secure Boot açık kalabilir.
 - TV'ye HDMI bağlıyken laptop ekranı kapanır; kapak kapalıyken de çalışmaya devam eder.
 - Netflix Linux'ta tarayıcıda en fazla 720p oynatır.
+
+### VirtualBox'ta deneme
+Her değişiklikte flash diske yazıp bilgisayarı açmak yerine VirtualBox kullanılır (`winget install Oracle.VirtualBox`).
+```
+.\os\vbox.ps1 build            # imajı derle, VM diskine çevir ve VM'i aç (tek komut)
+.\os\vbox.ps1                  # son imajla VM'i aç (imaj değiştiyse disk yenilenir)
+.\os\vbox.ps1 reset            # diski imajdan sıfırla (ayarlar silinir)
+.\os\vbox.ps1 shot ana         # ekran görüntüsü -> build\vbox-ana.png
+.\os\vbox.ps1 key f1 down ret  # tuş gönder
+.\os\vbox.ps1 powerdown        # kapat;  .\os\vbox.ps1 logs  BEEOS-LOG günlükleri
+```
+- VM: EFI, 4 GB RAM, 4 çekirdek, SATA disk (`build\vm\`). Telefon kumandası bilgisayardan `http://127.0.0.1:18081`.
+- VirtualBox Hyper-V (Docker Desktop) ile birlikte çalışırken yavaştır; `key` ile gönderilen tuşlar gecikebilir.
+  Otomatik denemede telefon kumandası API'si daha güvenilir:
+  `curl -X POST -H "X-BeeOS-PIN: <PIN>" -d '{"key":"down","n":6}' http://127.0.0.1:18081/api/key`
+- `-Headless` pencere açmadan çalıştırır. `os/vm.ps1` (Docker içinde QEMU, Secure Boot) da hâlâ kullanılabilir.
+
+### Sürümler ve güncelleme
+- Sürüm numarasının tek kaynağı `appinfo.json`. Arka uç ve arayüz oradan okur.
+- Release: `python tools/release.py bump X.Y.Z`, commit, `python tools/release.py tag`, etiketi push et.
+  GitHub Actions `beeos-update-X.Y.Z.tar.gz` (arayüz `web/`, `/opt/beeos/bin` dosyaları `bin/`, diğer sistem
+  dosyaları `overlay/`) ve `.sha256` dosyasını Release'e ekler.
+- Cihazda **Ayarlar > Sistem > Güncellemeleri kontrol et**: arka uç GitHub Releases API'den son sürümü sorar,
+  paketi indirir, SHA-256 ile doğrular, `/opt/beeos/web` ve `/opt/beeos/bin` klasörlerini yenisiyle değiştirir
+  (eskisi `.prev` olarak kalır), sonra arka ucu ve Chrome'u yeniden açar. Çekirdek, Chrome ve Debian paketleri
+  bu yolla güncellenmez; onlar için yeni imaj gerekir.
+- VM'de deneme (GitHub'a yayınlamadan):
+  ```
+  .\os\vbox.ps1 build -UpdateApi http://10.0.2.2:8000/latest.json   # bu sürümle imaj
+  python tools/release.py bump 0.5.0                                 # sürümü yükselt
+  python tools/release.py serve                                      # paketi ve sahte GitHub cevabını sun
+  ```
+  Kaynak `/etc/beeos/update.json` ile değişir: `{"api": "...", "token": "..."}` (token isteğe bağlı).
+
+### Markalar
+Netflix, YouTube, Prime Video, Disney+, Spotify ve diğer adlar/logolar sahiplerinin tescilli markalarıdır; beeOS bu
+şirketlerle bağlantılı değildir. Logolar Simple Icons'tan (CC0) alınır, MIT lisansının kapsamında değildir.

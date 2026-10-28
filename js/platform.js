@@ -15,7 +15,7 @@ var Platform = (function () {
     x.open(method, path, true);
     // Wi-Fi taraması, Bluetooth eşleştirme ve uygulama açılışı (sayfa yüklenene kadar bekler) uzun sürebilir
     x.timeout = path.indexOf("/api/wifi") === 0 ? 30000 : path.indexOf("/api/bt/") === 0 ? 45000 :
-                path === "/api/launch" ? 20000 : 8000;
+                path === "/api/launch" || path === "/api/remote/wait" || path === "/api/update/check" ? 30000 : 8000;
     x.onreadystatechange = function () {
       if (x.readyState !== 4) { return; }
       var res = null;
@@ -32,7 +32,7 @@ var Platform = (function () {
   // Ortamı belirler, sonra cb() çağırır. TV'de hemen döner.
   function detect(cb) {
     if (name === "tv") { cb(); return; }
-    if (mock) { name = "pc"; info = { platform: "pc", mock: true }; cb(); return; }
+    if (mock) { name = "pc"; info = { platform: "pc", mock: true, version: Mock.upd.current }; cb(); return; }
     api("GET", "/api/info", null, function (res) {
       if (res && res.platform === "pc") { name = "pc"; info = res; }
       cb();
@@ -58,7 +58,45 @@ var Platform = (function () {
       if (path === "/api/bt/remove" && d) { bt.devices.splice(bt.devices.indexOf(d), 1); }
       return bt;
     },
+    // TV / ekran: ?pc&tv ile HDMI takılı bir TV gibi davranır
+    disp: { current: "eDP-1", prev: "", until: 0 },
+    display: function (path, body) {
+      var d = this.disp;
+      if (path === "/api/display/use") { d.prev = d.current; d.current = body.name; d.until = Date.now() + 15000; }
+      if (path === "/api/display/keep") { d.until = 0; }
+      if (path === "/api/display/revert" && d.until) { d.current = d.prev; d.until = 0; }
+      if (d.until && Date.now() > d.until + 3000) { d.current = d.prev; d.until = 0; }
+      var outs = [{ name: "eDP-1", label: "Laptop ekranı", port: "Dahili", internal: true, active: true }];
+      if (/[?&]tv\b/.test(location.search)) {
+        outs.unshift({ name: "HDMI-A-1", label: "LG TV SSCR2", port: "HDMI 1", internal: false, active: true });
+      }
+      outs.forEach(function (o) { o.current = o.name === d.current; });
+      var res = { ok: true, outputs: outs };
+      if (d.until) { res.confirm = { name: d.current, left: Math.max(0, Math.round((d.until - Date.now()) / 1000)) }; }
+      return res;
+    },
+    // Güncelleme: ?pc ile 0.5.0 bulunur ve kurulur; ?pc&updfail ile indirme doğrulamada hata verir
+    upd: { ok: true, current: "0.4.0", state: "idle", progress: 0, error: "" },
+    update: function (path) {
+      var u = this.upd;
+      if (path === "/api/update/check") {
+        u.latest = "0.5.0"; u.available = u.current !== u.latest; u.size = 3355443;
+        u.notes = "Arayüzden güncelleme, VirtualBox test ortamı ve hata düzeltmeleri.";
+      }
+      if (path === "/api/update/install" && u.available) { u.state = "download"; u.progress = 0; u.error = ""; }
+      if (path === "/api/update" && u.state === "download") {
+        u.progress = Math.min(100, u.progress + 20);
+        if (u.progress >= 60 && /[?&]updfail\b/.test(location.search)) {
+          u.state = "error"; u.error = "Paket doğrulanamadı (sağlama toplamı tutmuyor)";
+        } else if (u.progress >= 100) { u.state = "install"; }
+      } else if (path === "/api/update" && u.state === "install") { u.state = "restart"; }
+      else if (path === "/api/update" && u.state === "restart") {
+        u.current = u.latest; u.available = false; u.state = "idle";
+      }
+      return JSON.parse(JSON.stringify(u));
+    },
     answer: function (method, path, body) {
+      if (path.indexOf("/api/update") === 0) { return this.update(path); }
       if (path === "/api/apps/open") {
         return { ok: true, apps: { "youtube.leanback.v4": "Lofi hip hop radio - beats to relax/study to - YouTube" } };
       }
@@ -69,6 +107,7 @@ var Platform = (function () {
         return this.remote;
       }
       if (path === "/api/photos") { return { ok: true, photos: [] }; }
+      if (path.indexOf("/api/display") === 0) { return this.display(path, body); }
       if (path.indexOf("/api/bt") === 0) { return this.bluetooth(path, body); }
       if (path === "/api/wifi") {
         return { enabled: true, current: this.current, networks: [

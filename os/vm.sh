@@ -48,13 +48,19 @@ case "${1:-}" in
     echo "90 sn'de kapanmadı"
     ;;
   logs)
-    command -v mdir >/dev/null || apt-get install -y -qq mtools >/dev/null 2>&1
+    # logs <ham disk>: VirtualBox diski (os/vbox.ps1 logs ham kopyayı verir)
+    command -v mdir >/dev/null || { apt-get update -qq && apt-get install -y -qq mtools >/dev/null 2>&1; }
     export MTOOLS_SKIP_CHECK=1
-    qemu-img convert -O raw $W/disk.qcow2 $W/d.raw
-    dd if=$W/d.raw of=$W/log.img bs=1M skip=257 count=64 status=none; rm -f $W/d.raw
+    mkdir -p $W
+    if [ -n "${2:-}" ]; then
+      dd if="$2" of=$W/log.img bs=1M skip=257 count=64 status=none
+    else
+      qemu-img convert -O raw $W/disk.qcow2 $W/d.raw
+      dd if=$W/d.raw of=$W/log.img bs=1M skip=257 count=64 status=none; rm -f $W/d.raw
+    fi
     d=$(mdir -b -i $W/log.img :: | grep '/2' | sort | tail -1)
     for f in session.log drm.txt; do echo "== $f"; mtype -i $W/log.img "$d/$f"; done
-    echo "== journal (beeOS)"; mtype -i $W/log.img "$d/journal.txt" | grep -E 'beeos-preload|arayüz yüklendi|Startup finished|beeos-profile'
+    echo "== journal (beeOS)"; mtype -i $W/log.img "$d/journal.txt" | grep -E 'beeos-preload|arayüz yüklendi|Startup finished|beeos-profile|güncelleme'
     ;;
   shot)
     mon "screendump $W/s.ppm"

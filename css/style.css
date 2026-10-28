@@ -556,6 +556,17 @@ html, body {
 .prow.big .plabel { top: 27px; }
 .prow.big .pval { top: 18px; font-size: 40px; font-weight: 600; letter-spacing: 2px; color: #ffc83d; opacity: 1; }
 #panelFoot { position: absolute; left: 64px; right: 64px; bottom: 44px; font-size: 18px; opacity: 0.4; }
+/* Görünümün başındaki açıklama kutusu (TV bağlantısı: onay, kapağı kapatabilirsin) */
+.pnote {
+  margin: 4px 0 18px;
+  padding: 22px 26px;
+  border-radius: 16px;
+  background: rgba(255, 200, 61, 0.1);
+  border: 1px solid rgba(255, 200, 61, 0.28);
+  font-size: 25px;
+  line-height: 1.45;
+}
+.big .pnote { font-size: 29px; }
 
 /* ---- Uygulama açılış ekranı ---- */
 #loader {

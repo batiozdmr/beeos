@@ -28,6 +28,9 @@ EXTRA = {
         '<path d="M16.5 11.5v8M12.5 15.5h8" stroke-width="2.2"/></svg>'),
 }
 
+# logos/ klasorundeki PNG'ler (her seyden once kullanilir)
+LOGO_FILES = ["netflix", "com.disney.disneyplus-prod"]
+
 PATH_RE = re.compile(r'<path[^>]*\sd="([^"]+)"')
 SAFE_D = re.compile(r"^[MmZzLlHhVvCcSsQqTtAa0-9.,\-\s]+$")
 
@@ -63,7 +66,7 @@ def main(src_dir):
         f.write("var LOGOS = " + json.dumps(logos, indent=2, ensure_ascii=False) + ";\n\n")
         f.write("// logos/ klasorune koydugun PNG'lerin uygulama kimlikleri (orn. \"netflix\" -> logos/netflix.png).\n")
         f.write("// Listedeki dosyalar her seyden once kullanilir.\n")
-        f.write("var LOGO_FILES = [];\n")
+        f.write("var LOGO_FILES = " + json.dumps(LOGO_FILES) + ";\n")
     print("yazildi:", out)
 
 

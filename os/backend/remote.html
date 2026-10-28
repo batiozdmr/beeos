@@ -2,98 +2,520 @@
 <html lang="tr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#07090f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="beeOS">
 <title>beeOS Kumanda</title>
 <style>
+  :root {
+    --bg: #07090f; --surface: #10141e; --surface-2: #161b28; --surface-3: #1e2433;
+    --line: rgba(255, 255, 255, 0.07); --line-2: rgba(255, 255, 255, 0.12);
+    --text: #f4f6fb; --muted: #8b93a7; --dim: #5b6377;
+    --honey: #ffc83d; --honey-2: #ff9f1a; --on-honey: #1c1300;
+    --ok: #3ddc84; --danger: #ff5f5f;
+    --r-lg: 26px; --r-md: 18px; --r-sm: 14px;
+    --safe-b: env(safe-area-inset-bottom, 0px); --safe-t: env(safe-area-inset-top, 0px);
+  }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin: 0; height: 100%; background: #07090f; color: #fff;
-               font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-  body { display: flex; flex-direction: column; align-items: center; padding: 20px 16px 28px;
-         -webkit-user-select: none; user-select: none; }
-  h1 { margin: 6px 0 18px; font-size: 22px; font-weight: 300; }
-  h1 b { color: #ffc83d; font-weight: 800; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+               font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+               -webkit-font-smoothing: antialiased; }
+  body { -webkit-user-select: none; user-select: none; overscroll-behavior: none; overflow: hidden;
+         background: radial-gradient(120% 60% at 50% -10%, rgba(255, 176, 40, 0.13), transparent 60%), var(--bg); }
   .hidden { display: none !important; }
-  #pair { width: 100%; max-width: 360px; text-align: center; }
-  #pair p { opacity: 0.6; line-height: 1.5; }
-  input { width: 100%; padding: 14px 16px; border-radius: 14px; border: 2px solid #2a3142;
-          background: #10141f; color: #fff; font-size: 18px; outline: none; }
-  input:focus { border-color: #ffc83d; }
-  #pin { font-size: 30px; letter-spacing: 10px; text-align: center; }
-  button { border: 0; border-radius: 16px; background: #1a2030; color: #fff; font-size: 17px;
-           font-weight: 600; cursor: pointer; touch-action: manipulation; }
-  button:active { background: #2a3245; transform: scale(0.96); }
-  .primary { background: #ffc83d; color: #1a1200; }
-  .primary:active { background: #e6b030; }
-  #pairBtn { width: 100%; height: 54px; margin-top: 14px; }
-  #msg { min-height: 22px; margin-top: 12px; color: #ff8a8a; }
-  #remote { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 18px; }
-  .row { display: flex; gap: 12px; }
-  .row button { flex: 1; height: 56px; }
-  #pad { position: relative; width: 280px; height: 280px; margin: 4px auto; border-radius: 50%;
-         background: #10141f; border: 1px solid #1f2636; }
-  #pad button { position: absolute; width: 84px; height: 84px; background: transparent; font-size: 30px; }
-  #pad button:active { background: #1f2636; }
-  #pad .up { left: 98px; top: 6px; } #pad .down { left: 98px; bottom: 6px; }
-  #pad .left { left: 6px; top: 98px; } #pad .right { right: 6px; top: 98px; }
-  #pad .ok { left: 80px; top: 80px; width: 120px; height: 120px; border-radius: 50%;
-             background: #ffc83d; color: #1a1200; font-size: 22px; }
-  #pad .ok:active { background: #e6b030; }
-  .text { display: flex; gap: 10px; }
-  .text input { flex: 1; }
-  .text button { width: 86px; }
-  .hint { font-size: 13px; opacity: 0.45; text-align: center; line-height: 1.5; }
-  #status { min-height: 18px; font-size: 13px; text-align: center; color: #ff8a8a; }
+  svg.i { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round;
+          stroke-linejoin: round; flex: none; }
+  button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer;
+           touch-action: manipulation; }
+  input, textarea { font: inherit; }
+
+  /* ---------- eşleşme ---------- */
+  #pair { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+          padding: calc(24px + var(--safe-t)) 24px calc(24px + var(--safe-b)); text-align: center; }
+  .logo { width: 84px; height: 84px; margin-bottom: 22px; filter: drop-shadow(0 10px 30px rgba(255, 170, 30, 0.45)); }
+  #pair h1 { margin: 0 0 8px; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
+  #pair p { margin: 0 auto; max-width: 300px; color: var(--muted); line-height: 1.5; font-size: 15px; }
+  #pair p b { color: var(--text); }
+  .digits { position: relative; display: flex; gap: 8px; margin: 30px 0 8px; }
+  .digit { width: 46px; height: 58px; border-radius: var(--r-sm); background: var(--surface); border: 1.5px solid var(--line-2);
+           display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 700;
+           transition: border-color 0.15s, transform 0.15s; }
+  .digit.cur { border-color: var(--honey); box-shadow: 0 0 0 4px rgba(255, 200, 61, 0.15); }
+  .digit.fill { background: var(--surface-2); }
+  #pin { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; color: transparent;
+         background: transparent; caret-color: transparent; font-size: 16px; }
+  .digits.shake { animation: shake 0.4s; }
+  @keyframes shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+  #msg { min-height: 22px; margin: 10px 0 18px; font-size: 14px; color: var(--muted); }
+  #msg.err { color: var(--danger); }
+  .primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 54px; padding: 0 24px;
+             border-radius: var(--r-md); background: linear-gradient(180deg, var(--honey), var(--honey-2));
+             color: var(--on-honey); font-weight: 700; font-size: 16px;
+             box-shadow: 0 8px 24px rgba(255, 160, 30, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.4); }
+  .primary:active { transform: scale(0.97); filter: brightness(0.95); }
+  .primary[disabled] { opacity: 0.4; box-shadow: none; }
+  #pairBtn { width: 100%; max-width: 330px; }
+
+  /* ---------- ana yapı ---------- */
+  #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+           padding: calc(12px + var(--safe-t)) 18px 8px; }
+  .brand { display: flex; align-items: center; gap: 9px; font-size: 19px; font-weight: 300; letter-spacing: -0.01em; }
+  .brand svg { width: 28px; height: 28px; }
+  .brand b { color: var(--honey); font-weight: 800; }
+  .conn { display: flex; align-items: center; gap: 7px; max-width: 58%; padding: 7px 12px; border-radius: 99px;
+          background: var(--surface); border: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
+  .conn span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .conn i { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: none; }
+  .conn.on i { background: var(--ok); box-shadow: 0 0 0 3px rgba(61, 220, 132, 0.18); }
+  .conn.off i { background: var(--danger); box-shadow: 0 0 0 3px rgba(255, 95, 95, 0.18); }
+  main { position: relative; flex: 1; min-height: 0; }
+  .page { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+          padding: 8px 18px 24px; display: none; }
+  .page.on { display: block; animation: pageIn 0.22s ease-out; }
+  @keyframes pageIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .wrap { max-width: 420px; margin: 0 auto; }
+  h2 { margin: 6px 2px 14px; font-size: 28px; font-weight: 750; letter-spacing: -0.03em; }
+  .label { margin: 22px 4px 10px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+           color: var(--dim); }
+
+  /* alt sekme çubuğu */
+  nav { display: flex; justify-content: space-around; padding: 6px 8px calc(6px + var(--safe-b));
+        background: rgba(10, 13, 20, 0.86); border-top: 1px solid var(--line);
+        -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+  nav button { flex: 1; max-width: 96px; display: flex; flex-direction: column; align-items: center; gap: 4px;
+               padding: 7px 0 5px; border-radius: 14px; color: var(--dim); font-size: 11px; font-weight: 600; }
+  nav button svg.i { width: 24px; height: 24px; }
+  nav button.on { color: var(--honey); }
+  nav button:active { background: var(--surface); }
+
+  /* ---------- kumanda sayfası ---------- */
+  .remote { display: flex; flex-direction: column; align-items: center; gap: 18px; min-height: 100%; justify-content: center; }
+  .seg { display: flex; padding: 4px; border-radius: 99px; background: var(--surface); border: 1px solid var(--line); }
+  .seg button { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 99px; font-size: 13.5px;
+                font-weight: 600; color: var(--muted); transition: background 0.2s, color 0.2s; }
+  .seg button svg.i { width: 17px; height: 17px; }
+  .seg button.on { background: var(--surface-3); color: var(--text); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35); }
+  .ctl { --size: min(76vw, 40vh, 300px); width: var(--size); height: var(--size); position: relative; }
+
+  #pad { position: absolute; inset: 0; border-radius: 50%; overflow: hidden; touch-action: none;
+         background: radial-gradient(circle at 50% 30%, #1d2331, #10141e 70%);
+         box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 0 0 1px var(--line); }
+  .wedge { position: absolute; inset: 0; display: flex; color: var(--muted); transition: color 0.12s; }
+  .wedge svg.i { width: 30px; height: 30px; stroke-width: 2.4; }
+  .wedge.up    { clip-path: polygon(0 0, 100% 0, 50% 50%); align-items: flex-start; justify-content: center; padding-top: 9%; }
+  .wedge.down  { clip-path: polygon(0 100%, 100% 100%, 50% 50%); align-items: flex-end; justify-content: center; padding-bottom: 9%; }
+  .wedge.left  { clip-path: polygon(0 0, 0 100%, 50% 50%); align-items: center; justify-content: flex-start; padding-left: 9%; }
+  .wedge.right { clip-path: polygon(100% 0, 100% 100%, 50% 50%); align-items: center; justify-content: flex-end; padding-right: 9%; }
+  .wedge.down svg { transform: rotate(180deg); } .wedge.left svg { transform: rotate(-90deg); }
+  .wedge.right svg { transform: rotate(90deg); }
+  .wedge.down-on, .wedge:active { color: var(--honey); background: radial-gradient(circle at 50% 50%, transparent 30%, rgba(255, 200, 61, 0.14) 75%); }
+  #ok { position: absolute; left: 31%; top: 31%; width: 38%; height: 38%; border-radius: 50%;
+        background: linear-gradient(180deg, var(--honey), var(--honey-2)); color: var(--on-honey);
+        font-size: 19px; font-weight: 800; letter-spacing: 0.04em;
+        box-shadow: 0 0 0 7px rgba(7, 9, 15, 0.7), 0 10px 26px rgba(255, 160, 30, 0.35), inset 0 2px 0 rgba(255, 255, 255, 0.45);
+        transition: transform 0.08s; }
+  #ok.down-on, #ok:active { transform: scale(0.94); filter: brightness(0.93); }
+
+  #touch { position: absolute; inset: 0; border-radius: 34px; overflow: hidden; touch-action: none;
+           background: radial-gradient(circle, rgba(255, 255, 255, 0.07) 1px, transparent 1.5px) 0 0 / 22px 22px,
+                       linear-gradient(180deg, #171c29, #0f131c);
+           box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55), inset 0 0 0 1px var(--line); }
+  #touch .tip { position: absolute; left: 0; right: 0; bottom: 18px; text-align: center; font-size: 12px; color: var(--dim);
+                line-height: 1.6; pointer-events: none; }
+  #touch .dot { position: absolute; width: 64px; height: 64px; margin: -32px 0 0 -32px; border-radius: 50%; pointer-events: none;
+                background: radial-gradient(circle, rgba(255, 200, 61, 0.45), rgba(255, 200, 61, 0) 70%); opacity: 0;
+                transition: opacity 0.2s; }
+  #touch .dot.on { opacity: 1; }
+  #touch .arrow { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px;
+                  color: var(--honey); opacity: 0; pointer-events: none; }
+  #touch .arrow svg.i { width: 58px; height: 58px; stroke-width: 2.6; }
+  #touch .arrow.flash { animation: flash 0.32s ease-out; }
+  @keyframes flash { from { opacity: 0.9; } to { opacity: 0; } }
+
+  .row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 100%; max-width: 380px; }
+  .pill { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; height: 64px;
+          border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--line);
+          font-size: 12px; font-weight: 600; color: var(--muted); transition: background 0.12s, transform 0.08s; }
+  .pill svg.i { color: var(--text); }
+  .pill.down-on, .pill:active { background: var(--surface-3); transform: scale(0.96); }
+
+  .deck { display: grid; grid-template-columns: 60px minmax(0, 1fr) 60px; gap: 10px; align-items: stretch; width: 100%; max-width: 380px; }
+  .rocker { display: flex; flex-direction: column; border-radius: 32px; background: var(--surface); border: 1px solid var(--line);
+            overflow: hidden; }
+  .rocker button { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 52px; }
+  .rocker button.down-on, .rocker button:active { background: var(--surface-3); }
+  .rocker .mid { display: flex; flex-direction: column; align-items: center; font-size: 10px; font-weight: 700;
+                 letter-spacing: 0.08em; color: var(--dim); padding: 2px 0; }
+  .rocker .mid b { font-size: 15px; color: var(--text); letter-spacing: 0; }
+  .media { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+           border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); padding: 14px 8px; }
+  .media .btns { display: flex; align-items: center; gap: 10px; }
+  .round { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+           background: var(--surface-2); transition: transform 0.08s, background 0.12s; }
+  .round.big { width: 62px; height: 62px; background: var(--text); color: var(--bg); }
+  .round.big svg.i { width: 28px; height: 28px; fill: currentColor; stroke: none; }
+  .round.down-on, .round:active { transform: scale(0.92); background: var(--surface-3); }
+  .round.big:active { background: #d9dce4; }
+  .vbar { width: 82%; height: 4px; border-radius: 4px; background: var(--surface-3); overflow: hidden; }
+  .vbar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--honey-2), var(--honey));
+            transition: width 0.25s; }
+  .vbar.muted i { background: var(--dim); }
+
+  /* ---------- uygulamalar ---------- */
+  .search { display: flex; align-items: center; gap: 10px; width: 100%; height: 50px; padding: 0 16px; border-radius: var(--r-sm);
+            background: var(--surface); border: 1px solid var(--line); color: var(--dim); font-size: 15.5px; text-align: left; }
+  .search:active { background: var(--surface-2); }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .tile { position: relative; aspect-ratio: 1 / 1.08; border-radius: var(--r-md); overflow: hidden; display: flex;
+          flex-direction: column; justify-content: space-between; padding: 12px; text-align: left;
+          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+          transition: transform 0.1s; }
+  .tile:active { transform: scale(0.95); }
+  .tile::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 45%, rgba(0, 0, 0, 0.35)); }
+  .tile .g { position: relative; z-index: 1; font-size: 30px; font-weight: 800; line-height: 1; letter-spacing: -0.03em;
+             text-shadow: 0 2px 10px rgba(0, 0, 0, 0.25); }
+  .tile .g svg.i { width: 30px; height: 30px; }
+  .tile .n { position: relative; z-index: 1; font-size: 13px; font-weight: 700; line-height: 1.2; }
+  .tile .s { display: block; font-size: 11px; font-weight: 500; opacity: 0.75; margin-top: 2px; }
+  .tile .live { position: absolute; z-index: 1; top: 10px; right: 10px; padding: 3px 7px; border-radius: 99px; font-size: 10px;
+                font-weight: 700; background: rgba(0, 0, 0, 0.45); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+  .tile .live::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 4px; border-radius: 50%;
+                        background: var(--ok); vertical-align: 1px; }
+  .empty { padding: 36px 16px; text-align: center; color: var(--muted); line-height: 1.5; font-size: 14.5px;
+           border-radius: var(--r-md); border: 1px dashed var(--line-2); }
+
+  /* ---------- yaz ---------- */
+  .field { width: 100%; min-height: 120px; padding: 16px; border-radius: var(--r-md); background: var(--surface);
+           border: 1.5px solid var(--line-2); color: var(--text); font-size: 18px; outline: none; resize: none;
+           -webkit-user-select: text; user-select: text; transition: border-color 0.15s; }
+  .field:focus { border-color: var(--honey); }
+  .field::placeholder { color: var(--dim); }
+  .keys { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 10px; margin-top: 12px; }
+  .key { display: flex; align-items: center; justify-content: center; gap: 8px; height: 54px; border-radius: var(--r-sm);
+         background: var(--surface); border: 1px solid var(--line); font-weight: 600; font-size: 15px; }
+  .key.down-on, .key:active { background: var(--surface-3); }
+  .key.primary { border: 0; background: linear-gradient(180deg, var(--honey), var(--honey-2)); color: var(--on-honey); }
+  .key.primary:active { filter: brightness(0.93); }
+
+  /* ---------- liste satırları (sistem) ---------- */
+  .card { border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--line); overflow: hidden; }
+  .item { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 58px; padding: 12px 16px; text-align: left; }
+  .item + .item { border-top: 1px solid var(--line); }
+  button.item:active { background: var(--surface-2); }
+  .item .ico { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+               background: var(--surface-3); flex: none; }
+  .item .ico svg.i { width: 19px; height: 19px; }
+  .item .t { flex: 1; min-width: 0; font-size: 15.5px; font-weight: 550; }
+  .item .t small { display: block; margin-top: 2px; font-size: 12.5px; font-weight: 400; color: var(--muted);
+                   overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .item .v { color: var(--muted); font-size: 14px; }
+  .item.danger .t, .item.danger .ico { color: var(--danger); }
+  .item.danger .ico { background: rgba(255, 95, 95, 0.12); }
+  .sw { position: relative; width: 50px; height: 30px; border-radius: 99px; background: var(--surface-3); flex: none;
+        transition: background 0.2s; }
+  .sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff;
+               box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3); transition: transform 0.2s; }
+  .sw.on { background: var(--ok); }
+  .sw.on::after { transform: translateX(20px); }
+  .vol { padding: 16px; }
+  .vol .head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .vol .head .t { flex: 1; font-size: 15.5px; font-weight: 550; }
+  .vol .head b { font-size: 15px; color: var(--honey); font-variant-numeric: tabular-nums; }
+  .slider { display: flex; align-items: center; gap: 12px; color: var(--muted); }
+  input[type=range] { flex: 1; height: 36px; margin: 0; background: transparent; -webkit-appearance: none; appearance: none; }
+  input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 6px;
+    background: linear-gradient(90deg, var(--honey) 0 var(--p, 0%), var(--surface-3) var(--p, 0%)); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; margin-top: -10px; border-radius: 50%;
+    background: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); }
+  input[type=range]::-moz-range-track { height: 6px; border-radius: 6px; background: var(--surface-3); }
+  input[type=range]::-moz-range-progress { height: 6px; border-radius: 6px; background: var(--honey); }
+  input[type=range]::-moz-range-thumb { width: 26px; height: 26px; border: 0; border-radius: 50%; background: #fff; }
+  .foot { margin: 22px 0 6px; text-align: center; font-size: 12px; color: var(--dim); }
+
+  /* ---------- alt sayfa (sheet) ve bildirim ---------- */
+  #scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); opacity: 0; pointer-events: none; transition: opacity 0.25s; z-index: 20; }
+  #scrim.on { opacity: 1; pointer-events: auto; }
+  #sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; max-width: 520px; margin: 0 auto;
+           padding: 10px 18px calc(18px + var(--safe-b)); border-radius: 26px 26px 0 0; background: #121724;
+           border-top: 1px solid var(--line-2); transform: translateY(105%); transition: transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1); }
+  #sheet.on { transform: none; }
+  #sheet .grab { width: 40px; height: 5px; margin: 0 auto 14px; border-radius: 5px; background: var(--surface-3); }
+  #sheet h3 { margin: 0 0 6px; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+  #sheet p { margin: 0 0 18px; color: var(--muted); line-height: 1.5; font-size: 14.5px; }
+  .sheet-btns { display: grid; gap: 10px; }
+  .ghost { height: 52px; border-radius: var(--r-md); background: var(--surface-2); font-weight: 600; font-size: 16px; }
+  .ghost:active { background: var(--surface-3); }
+  .danger-btn { height: 54px; border-radius: var(--r-md); background: var(--danger); color: #fff; font-weight: 700; font-size: 16px; }
+  .danger-btn:active { filter: brightness(0.92); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 18px; }
+  .chip { padding: 9px 14px; border-radius: 99px; background: var(--surface-2); border: 1.5px solid transparent; font-size: 14px;
+          font-weight: 600; color: var(--muted); }
+  .chip.on { border-color: var(--honey); color: var(--text); background: rgba(255, 200, 61, 0.1); }
+  .sheet-input { width: 100%; height: 54px; padding: 0 16px; border-radius: var(--r-sm); background: var(--surface);
+                 border: 1.5px solid var(--line-2); color: var(--text); font-size: 17px; outline: none;
+                 -webkit-user-select: text; user-select: text; }
+  .sheet-input:focus { border-color: var(--honey); }
+
+  #toast { position: fixed; left: 50%; top: calc(14px + var(--safe-t)); z-index: 30; max-width: calc(100% - 32px);
+           padding: 11px 18px; border-radius: 99px; background: rgba(30, 36, 51, 0.96); border: 1px solid var(--line-2);
+           font-size: 14px; font-weight: 600; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+           transform: translate(-50%, -140%); visibility: hidden; pointer-events: none;
+           transition: transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1), visibility 0s 0.3s; }
+  #toast.on { transform: translate(-50%, 0); visibility: visible; transition: transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1); }
+  #toast.err { color: #ffb3b3; }
+
+  @media (min-height: 760px) { .remote { gap: 22px; } .pill { height: 70px; } }
+  @media (max-height: 640px) { .seg { display: none; } .pill { height: 56px; } .round.big { width: 58px; height: 58px; } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
-<h1><b>bee</b>OS Kumanda</h1>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="hg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffd65a"/><stop offset="1" stop-color="#ff9f1a"/></linearGradient>
+    <symbol id="i-logo" viewBox="0 0 64 64"><path d="M32 3l25 14.5v29L32 61 7 46.5v-29z" fill="url(#hg)"/><path d="M32 17l12.5 7.25v14.5L32 46l-12.5-7.25v-14.5z" fill="#07090f" opacity=".9"/><path d="M32 25l5.6 3.25v6.5L32 38l-5.6-3.25v-6.5z" fill="url(#hg)"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/></symbol>
+    <symbol id="i-hex" viewBox="0 0 24 24"><path d="M12 2.5l8.2 4.75v9.5L12 21.5l-8.2-4.75v-9.5z"/><path d="M12 9l2.6 1.5v3L12 15l-2.6-1.5v-3z"/></symbol>
+    <symbol id="i-dots" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></symbol>
+    <symbol id="i-playpause" viewBox="0 0 24 24"><path d="M3 5.5v13l9-6.5z"/><rect x="14" y="5.5" width="3" height="13" rx="1"/><rect x="19" y="5.5" width="3" height="13" rx="1"/></symbol>
+    <symbol id="i-prev" viewBox="0 0 24 24"><path d="M19 6v12l-9-6z" fill="currentColor"/><path d="M6 6v12"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path d="M5 6v12l9-6z" fill="currentColor"/><path d="M18 6v12"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+    <symbol id="i-mute" viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M22 9l-6 6M16 9l6 6"/></symbol>
+    <symbol id="i-speaker" viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13"/></symbol>
+    <symbol id="i-speaker-low" viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 010 7"/></symbol>
+    <symbol id="i-kbd" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M18 13h.01M10 13h4M7 16.5h10"/></symbol>
+    <symbol id="i-remote" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="4"/><circle cx="12" cy="9" r="2.5"/><path d="M10 15h.01M14 15h.01M10 18h.01M14 18h.01"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1.08-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
+    <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 2.5v9"/><path d="M6.3 6.3a8 8 0 1011.4 0"/></symbol>
+    <symbol id="i-restart" viewBox="0 0 24 24"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+    <symbol id="i-closeall" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M9 9l6 6M15 9l-6 6"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M5 12.5a10 10 0 0114 0M8.5 16a5 5 0 017 0M2 9a15 15 0 0120 0"/><path d="M12 19.5h.01"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></symbol>
+    <symbol id="i-hand" viewBox="0 0 24 24"><path d="M9 11V5.5a1.5 1.5 0 013 0V11m0-1.5a1.5 1.5 0 013 0V11m0-.5a1.5 1.5 0 013 0V15a7 7 0 01-7 7h-.5a6.5 6.5 0 01-5.3-2.7L3.6 16a1.5 1.5 0 012.3-1.9L9 17"/></symbol>
+    <symbol id="i-dpad" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="12" r="3.5"/></symbol>
+    <symbol id="i-erase" viewBox="0 0 24 24"><path d="M21 5H9l-6 7 6 7h12a1 1 0 001-1V6a1 1 0 00-1-1z"/><path d="M17 9l-5 6M12 9l5 6"/></symbol>
+    <symbol id="i-enter" viewBox="0 0 24 24"><path d="M9 10l-5 5 5 5"/><path d="M20 4v7a4 4 0 01-4 4H4"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></symbol>
+    <symbol id="i-vibrate" viewBox="0 0 24 24"><rect x="7" y="4" width="10" height="16" rx="2"/><path d="M3 9v6M21 9v6"/></symbol>
+    <symbol id="i-unlink" viewBox="0 0 24 24"><path d="M15 7h2a5 5 0 014 7.6M9 17H7a5 5 0 01-1.7-9.7"/><path d="M8 12h3M3 3l18 18"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v6M12 7.5h.01"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"/><path d="M2.5 12h19M12 2.5a14.5 14.5 0 010 19M12 2.5a14.5 14.5 0 000 19"/></symbol>
+    <symbol id="i-tv" viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8 21h8"/></symbol>
+  </defs>
+</svg>
 
+<!-- eşleşme -->
 <div id="pair" class="hidden">
-  <p>TV'de <b>Telefon</b> kartını aç ve orada görünen 6 haneli PIN'i yaz.</p>
-  <input id="pin" type="tel" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••">
-  <button id="pairBtn" class="primary">Bağlan</button>
+  <svg class="logo"><use href="#i-logo"/></svg>
+  <h1>Kumandayı bağla</h1>
+  <p>TV'de <b>Telefon</b> kartını aç ve ekranda görünen 6 haneli PIN'i yaz.</p>
+  <div class="digits" id="digits">
+    <div class="digit"></div><div class="digit"></div><div class="digit"></div>
+    <div class="digit"></div><div class="digit"></div><div class="digit"></div>
+    <input id="pin" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" aria-label="PIN">
+  </div>
   <div id="msg"></div>
+  <button id="pairBtn" class="primary" disabled>Bağlan</button>
 </div>
 
-<div id="remote" class="hidden">
-  <div class="row">
-    <button data-key="back">‹ Geri</button>
-    <button data-key="home">⌂ beeOS</button>
-  </div>
-  <div id="pad">
-    <button class="up" data-key="up" aria-label="Yukarı">▲</button>
-    <button class="left" data-key="left" aria-label="Sol">◀</button>
-    <button class="ok" data-key="ok">OK</button>
-    <button class="right" data-key="right" aria-label="Sağ">▶</button>
-    <button class="down" data-key="down" aria-label="Aşağı">▼</button>
-  </div>
-  <div class="row">
-    <button data-key="voldown" aria-label="Sesi azalt">🔉 −</button>
-    <button data-key="playpause" aria-label="Oynat / duraklat">⏯</button>
-    <button data-key="mute" aria-label="Sessiz">🔇</button>
-    <button data-key="volup" aria-label="Sesi artır">🔊 +</button>
-  </div>
-  <div class="text">
-    <input id="text" type="text" placeholder="Yaz ya da 🎤 ile söyle" autocomplete="off" enterkeyhint="send">
-    <button id="send" class="primary">Gönder</button>
-  </div>
-  <div class="hint">Ana ekranda yazı göndermek aramayı başlatır. Telefon klavyesindeki mikrofonla sesle yazabilirsin.</div>
-  <div id="status"></div>
+<!-- kumanda -->
+<div id="app" class="hidden">
+  <header>
+    <div class="brand"><svg><use href="#i-logo"/></svg><span><b>bee</b>OS</span></div>
+    <div class="conn" id="conn"><i></i><span id="connText">Bağlanıyor…</span></div>
+  </header>
+
+  <main>
+    <!-- Kumanda -->
+    <section class="page on" id="pg-remote">
+      <div class="wrap remote">
+        <div class="seg" role="tablist">
+          <button class="on" data-ctl="pad"><svg class="i"><use href="#i-dpad"/></svg>Yön tuşları</button>
+          <button data-ctl="touch"><svg class="i"><use href="#i-hand"/></svg>Dokunmatik</button>
+        </div>
+        <div class="ctl">
+          <div id="pad">
+            <button class="wedge up" data-key="up" data-rep aria-label="Yukarı"><svg class="i"><use href="#i-chev"/></svg></button>
+            <button class="wedge right" data-key="right" data-rep aria-label="Sağ"><svg class="i"><use href="#i-chev"/></svg></button>
+            <button class="wedge down" data-key="down" data-rep aria-label="Aşağı"><svg class="i"><use href="#i-chev"/></svg></button>
+            <button class="wedge left" data-key="left" data-rep aria-label="Sol"><svg class="i"><use href="#i-chev"/></svg></button>
+            <button id="ok" data-key="ok">OK</button>
+          </div>
+          <div id="touch" class="hidden" aria-label="Dokunmatik yüzey">
+            <div class="dot"></div>
+            <div class="arrow"><svg class="i"><use href="#i-chev"/></svg></div>
+            <div class="tip">Kaydır: yön · Dokun: OK<br>Basılı tut: seçenekler</div>
+          </div>
+        </div>
+        <div class="row3">
+          <button class="pill" data-key="back"><svg class="i"><use href="#i-back"/></svg>Geri</button>
+          <button class="pill" data-key="home"><svg class="i"><use href="#i-hex"/></svg>beeOS</button>
+          <button class="pill" data-key="menu"><svg class="i"><use href="#i-dots"/></svg>Seçenekler</button>
+        </div>
+        <div class="deck">
+          <div class="rocker">
+            <button data-key="volup" data-rep aria-label="Sesi artır"><svg class="i"><use href="#i-plus"/></svg></button>
+            <div class="mid">SES<b class="volNum">–</b></div>
+            <button data-key="voldown" data-rep aria-label="Sesi azalt"><svg class="i"><use href="#i-minus"/></svg></button>
+          </div>
+          <div class="media">
+            <div class="btns">
+              <button class="round" data-key="prev" aria-label="Önceki"><svg class="i"><use href="#i-prev"/></svg></button>
+              <button class="round big" data-key="playpause" aria-label="Oynat / duraklat"><svg class="i"><use href="#i-playpause"/></svg></button>
+              <button class="round" data-key="next" aria-label="Sonraki"><svg class="i"><use href="#i-next"/></svg></button>
+            </div>
+            <div class="vbar" id="vbar"><i></i></div>
+          </div>
+          <div class="rocker">
+            <button data-key="mute" aria-label="Sessiz"><svg class="i"><use href="#i-mute"/></svg></button>
+            <div class="mid">&nbsp;</div>
+            <button data-go="type" aria-label="Klavye"><svg class="i"><use href="#i-kbd"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Uygulamalar -->
+    <section class="page" id="pg-apps">
+      <div class="wrap">
+        <h2>Uygulamalar</h2>
+        <button class="search" id="searchBtn"><svg class="i"><use href="#i-search"/></svg>Film, dizi, şarkı ara</button>
+        <div class="label">TV'de aç</div>
+        <div class="grid" id="grid"></div>
+        <div class="empty hidden" id="appsEmpty">beeOS açılınca uygulamaların burada görünür.</div>
+      </div>
+    </section>
+
+    <!-- Yaz -->
+    <section class="page" id="pg-type">
+      <div class="wrap">
+        <h2>Yaz</h2>
+        <textarea class="field" id="text" placeholder="Yazmaya başla…" autocomplete="off" autocapitalize="off"
+                  spellcheck="false" enterkeyhint="done"></textarea>
+        <div class="keys">
+          <button class="key" data-key="backspace" data-rep><svg class="i"><use href="#i-erase"/></svg>Sil</button>
+          <button class="key" id="clearBtn">Temizle</button>
+          <button class="key primary" id="enterBtn"><svg class="i"><use href="#i-enter"/></svg>Tamam</button>
+        </div>
+        <div class="label">Seçenekler</div>
+        <div class="card">
+          <button class="item" id="liveBtn">
+            <span class="ico"><svg class="i"><use href="#i-tv"/></svg></span>
+            <span class="t">Canlı yazım<small id="liveSub">Her harf anında TV'ye gider</small></span>
+            <span class="sw" id="liveSw"></span>
+          </button>
+        </div>
+        <div class="foot">Telefon klavyesindeki mikrofonla sesle de yazabilirsin.<br>Ana ekranda yazmak aramayı başlatır.</div>
+      </div>
+    </section>
+
+    <!-- Sistem -->
+    <section class="page" id="pg-system">
+      <div class="wrap">
+        <h2>Sistem</h2>
+        <div class="card vol">
+          <div class="head"><svg class="i"><use href="#i-speaker"/></svg><span class="t">Ses düzeyi</span><b class="volNum">–</b></div>
+          <div class="slider">
+            <button data-key="mute" aria-label="Sessiz"><svg class="i"><use href="#i-mute"/></svg></button>
+            <input type="range" id="volRange" min="0" max="100" step="1" value="0" aria-label="Ses düzeyi">
+            <svg class="i"><use href="#i-speaker"/></svg>
+          </div>
+        </div>
+
+        <div class="label">beeOS</div>
+        <div class="card">
+          <button class="item" data-key="settings">
+            <span class="ico"><svg class="i"><use href="#i-gear"/></svg></span>
+            <span class="t">beeOS ayarları<small>Görünüm, ses, sıralama, ekran koruyucu</small></span>
+          </button>
+          <button class="item" data-key="home">
+            <span class="ico"><svg class="i"><use href="#i-hex"/></svg></span>
+            <span class="t">Ana ekrana dön</span>
+          </button>
+          <button class="item" data-power="closeapps">
+            <span class="ico"><svg class="i"><use href="#i-closeall"/></svg></span>
+            <span class="t">Açık uygulamaları kapat<small id="openSub">Açık uygulama yok</small></span>
+          </button>
+        </div>
+
+        <div class="label">Güç</div>
+        <div class="card">
+          <button class="item" data-power="reboot">
+            <span class="ico"><svg class="i"><use href="#i-restart"/></svg></span>
+            <span class="t">Yeniden başlat</span>
+          </button>
+          <button class="item danger" data-power="off">
+            <span class="ico"><svg class="i"><use href="#i-power"/></svg></span>
+            <span class="t">Kapat</span>
+          </button>
+        </div>
+
+        <div class="label">Kumanda</div>
+        <div class="card">
+          <button class="item" id="hapticBtn">
+            <span class="ico"><svg class="i"><use href="#i-vibrate"/></svg></span>
+            <span class="t">Titreşim<small>Tuşlara basınca hafif titreşim</small></span>
+            <span class="sw" id="hapticSw"></span>
+          </button>
+          <div class="item">
+            <span class="ico"><svg class="i"><use href="#i-wifi"/></svg></span>
+            <span class="t">Ağ<small id="netSub">–</small></span>
+          </div>
+          <button class="item danger" id="unpairBtn">
+            <span class="ico"><svg class="i"><use href="#i-unlink"/></svg></span>
+            <span class="t">Kumandayı ayır<small>Yeniden bağlanmak için PIN gerekir</small></span>
+          </button>
+        </div>
+        <div class="foot" id="ver">beeOS</div>
+      </div>
+    </section>
+  </main>
+
+  <nav>
+    <button class="on" data-tab="remote"><svg class="i"><use href="#i-remote"/></svg>Kumanda</button>
+    <button data-tab="apps"><svg class="i"><use href="#i-grid"/></svg>Uygulamalar</button>
+    <button data-tab="type"><svg class="i"><use href="#i-kbd"/></svg>Yaz</button>
+    <button data-tab="system"><svg class="i"><use href="#i-gear"/></svg>Sistem</button>
+  </nav>
 </div>
+
+<div id="scrim"></div>
+<div id="sheet" role="dialog" aria-modal="true"><div class="grab"></div><div id="sheetBody"></div></div>
+<div id="toast"></div>
 
 <script>
 (function () {
-  var KEY = "beeos.remote.pin";
-  var pin = "";
-  try { pin = localStorage.getItem(KEY) || ""; } catch (e) {}
+  var KEY = "beeos.remote.pin", PREFS = "beeos.remote.prefs";
+  // Tarayıcıda denemek için: remote.html?mock (PIN 123456)
+  var MOCK = /[?&]mock\b/.test(location.search);
+  var pin = "", prefs = { haptic: true, live: true, ctl: "pad" };
+  try {
+    pin = localStorage.getItem(KEY) || "";
+    var p = JSON.parse(localStorage.getItem(PREFS) || "{}");
+    for (var k in p) { if (p.hasOwnProperty(k)) { prefs[k] = p[k]; } }
+  } catch (e) {}
 
   function $(id) { return document.getElementById(id); }
+  function all(sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); }
+  function savePrefs() { try { localStorage.setItem(PREFS, JSON.stringify(prefs)); } catch (e) {} }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function buzz(ms) { if (prefs.haptic && navigator.vibrate) { navigator.vibrate(ms || 10); } }
 
+  // ---------- sunucu ----------
   function call(path, body, cb) {
+    if (MOCK) { setTimeout(function () { mock(path, body || {}, cb); }, 120); return; }
     var x = new XMLHttpRequest();
     x.open("POST", path, true);
-    x.timeout = 8000;
+    x.timeout = path === "/api/launch" ? 15000 : 8000;
     x.setRequestHeader("Content-Type", "application/json");
     x.setRequestHeader("X-BeeOS-PIN", pin);
     x.onreadystatechange = function () {
@@ -106,63 +528,508 @@
     x.send(JSON.stringify(body || {}));
   }
 
-  function show(which) {
-    $("pair").className = which === "pair" ? "" : "hidden";
-    $("remote").className = which === "remote" ? "" : "hidden";
+  // Tuşlar ve yazı sırayla gider (sıra bozulursa harfler karışır). Basılı tutma tekrarları kuyruk dolunca atlanır.
+  var queue = [], busy = false;
+  function send(path, body, cb, droppable) {
+    if (droppable && queue.length > 2) { return; }
+    queue.push([path, body, cb]);
+    pump();
+  }
+  function pump() {
+    if (busy || !queue.length) { return; }
+    busy = true;
+    var job = queue.shift();
+    call(job[0], job[1], function (status, res) {
+      busy = false;
+      var ok = handle(status, res);
+      if (job[2]) { job[2](ok, res); }
+      pump();
+    });
   }
 
   // PIN geçersiz olunca (TV'de yeni PIN üretildi) eşleşme ekranına dön
   function handle(status, res) {
     if (status === 401) {
-      try { localStorage.removeItem(KEY); } catch (e) {}
-      pin = "";
-      show("pair");
-      $("msg").textContent = "PIN değişmiş. TV'deki yeni PIN'i yaz.";
+      queue = [];
+      unpair("PIN değişmiş. TV'deki yeni PIN'i yaz.");
       return false;
     }
-    $("status").textContent = status === 200 && res.ok !== false ? "" :
-      (res.error || "beeOS'a ulaşılamadı. Aynı ağda mısın?");
-    return status === 200;
+    if (status === 0 || status >= 500) { setConn(false); return false; }
+    setConn(true);
+    if (status !== 200 || res.ok === false) { toast(res.error || "İşlem yapılamadı", true); return false; }
+    if (res.volume) { setVolume(res.volume); }
+    return true;
   }
 
+  function press(key, repeat, n) {
+    buzz(repeat ? 6 : 10);
+    send("/api/key", n ? { key: key, n: n } : { key: key }, null, repeat);
+  }
+
+  // ---------- bağlantı ----------
+  var online = null, net = "";
+  function setConn(ok) {
+    online = ok;
+    $("conn").className = "conn " + (ok ? "on" : "off");
+    $("connText").textContent = ok ? (net ? "Bağlı · " + net : "Bağlı") : "Bağlantı yok";
+  }
+
+  var stateTimer = null;
+  function refresh() {
+    clearTimeout(stateTimer);
+    if (!pin || document.hidden) { return; }
+    call("/api/state", null, function (status, res) {
+      if (status === 401) { handle(status, res); return; }
+      if (status === 200 && res.ok) {
+        net = res.network || "";
+        setConn(true);
+        if (res.volume) { setVolume(res.volume); }
+        renderApps(res.apps || [], res.open || {});
+        $("netSub").textContent = (res.online ? "İnternet var" : "İnternet yok") + (net ? " · " + net : "");
+        $("ver").textContent = "beeOS " + (res.version || "");
+      } else {
+        setConn(false);
+      }
+      stateTimer = setTimeout(refresh, 5000);
+    });
+  }
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) { refresh(); } });
+
+  // ---------- ses ----------
+  var volDrag = false;
+  function setVolume(v) {
+    var lvl = v.level, txt = v.muted ? "Sessiz" : lvl + "%";
+    all(".volNum").forEach(function (el) { el.textContent = v.muted ? "–" : lvl; });
+    all(".vol .head b").forEach(function (el) { el.textContent = txt; });
+    $("vbar").className = "vbar" + (v.muted ? " muted" : "");
+    $("vbar").firstChild.style.width = lvl + "%";
+    if (!volDrag) { $("volRange").value = lvl; paintRange(); }
+  }
+  function paintRange() { $("volRange").style.setProperty("--p", $("volRange").value + "%"); }
+  var volSend = null;
+  $("volRange").addEventListener("input", function () {
+    volDrag = true;
+    paintRange();
+    all(".vol .head b").forEach(function (el) { el.textContent = $("volRange").value + "%"; });
+    // Sürüklerken de seviyeyi gönder, ama en fazla 150 ms'de bir
+    if (!volSend) {
+      volSend = setTimeout(function () {
+        volSend = null;
+        send("/api/volume", { level: +$("volRange").value }, null, true);
+      }, 150);
+    }
+  });
+  $("volRange").addEventListener("change", function () {
+    volDrag = false;
+    buzz(8);
+    send("/api/volume", { level: +$("volRange").value });
+  });
+
+  // ---------- basılı tutunca tekrarlayan tuşlar ----------
+  function bindKey(el) {
+    var key = el.getAttribute("data-key"), rep = el.hasAttribute("data-rep"), t1 = null, t2 = null, down = false;
+    function start(e) {
+      if (e.button > 0) { return; }
+      e.preventDefault();
+      if (down) { return; }
+      down = true;
+      el.classList.add("down-on");
+      press(key, false);
+      if (rep) {
+        t1 = setTimeout(function () { t2 = setInterval(function () { press(key, true); }, 110); }, 400);
+      }
+    }
+    function end() {
+      if (!down) { return; }
+      down = false;
+      el.classList.remove("down-on");
+      clearTimeout(t1);
+      clearInterval(t2);
+    }
+    el.addEventListener("pointerdown", start);
+    el.addEventListener("pointerup", end);
+    el.addEventListener("pointercancel", end);
+    el.addEventListener("pointerleave", end);
+    el.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+    // Klavyeyle (erişilebilirlik) basılınca pointer olayı gelmez
+    el.addEventListener("click", function (e) { if (e.detail === 0) { press(key, false); } });
+  }
+  all("[data-key]").forEach(bindKey);
+
+  // ---------- yön tuşları / dokunmatik yüzey ----------
+  function setCtl(c) {
+    prefs.ctl = c;
+    savePrefs();
+    all(".seg button").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-ctl") === c); });
+    $("pad").classList.toggle("hidden", c !== "pad");
+    $("touch").classList.toggle("hidden", c !== "touch");
+  }
+  all(".seg button").forEach(function (b) {
+    b.addEventListener("click", function () { buzz(6); setCtl(b.getAttribute("data-ctl")); });
+  });
+
+  (function () {
+    var tp = $("touch"), dot = tp.querySelector(".dot"), arrow = tp.querySelector(".arrow");
+    var STEP = 34, ROT = { up: 0, right: 90, down: 180, left: -90 };
+    var ax = 0, ay = 0, sx = 0, sy = 0, t0 = 0, moved = false, held = false, holdT = null, active = false;
+    function pos(e) {
+      var r = tp.getBoundingClientRect();
+      dot.style.left = (e.clientX - r.left) + "px";
+      dot.style.top = (e.clientY - r.top) + "px";
+    }
+    function flash(dir) {
+      arrow.style.transform = "rotate(" + ROT[dir] + "deg)";
+      arrow.classList.remove("flash");
+      void arrow.offsetWidth;
+      arrow.classList.add("flash");
+    }
+    tp.addEventListener("pointerdown", function (e) {
+      e.preventDefault();
+      if (tp.setPointerCapture) { tp.setPointerCapture(e.pointerId); }
+      active = true; moved = false; held = false;
+      ax = sx = e.clientX; ay = sy = e.clientY; t0 = Date.now();
+      pos(e);
+      dot.classList.add("on");
+      holdT = setTimeout(function () { if (!moved) { held = true; buzz(25); press("menu"); } }, 600);
+    });
+    tp.addEventListener("pointermove", function (e) {
+      if (!active) { return; }
+      pos(e);
+      if (Math.abs(e.clientX - sx) > 10 || Math.abs(e.clientY - sy) > 10) { moved = true; clearTimeout(holdT); }
+      var dx = e.clientX - ax, dy = e.clientY - ay, dir = null;
+      if (Math.abs(dx) >= STEP && Math.abs(dx) > Math.abs(dy)) { dir = dx > 0 ? "right" : "left"; }
+      else if (Math.abs(dy) >= STEP) { dir = dy > 0 ? "down" : "up"; }
+      if (dir) {
+        ax = e.clientX; ay = e.clientY;
+        flash(dir);
+        press(dir, true);
+      }
+    });
+    function end() {
+      if (!active) { return; }
+      active = false;
+      clearTimeout(holdT);
+      dot.classList.remove("on");
+      if (!moved && !held && Date.now() - t0 < 500) { press("ok"); }
+    }
+    tp.addEventListener("pointerup", end);
+    tp.addEventListener("pointercancel", function () { moved = true; end(); });
+    tp.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+  })();
+
+  // ---------- sekmeler ----------
+  function go(tab) {
+    all("nav button").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-tab") === tab); });
+    all(".page").forEach(function (p) { p.classList.toggle("on", p.id === "pg-" + tab); });
+    if (tab !== "type") { $("text").blur(); }
+    if (tab === "apps" || tab === "system") { refresh(); }
+  }
+  all("nav button").forEach(function (b) {
+    b.addEventListener("click", function () { buzz(6); go(b.getAttribute("data-tab")); });
+  });
+  all("[data-go]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      buzz(8);
+      go(b.getAttribute("data-go"));
+      if (b.getAttribute("data-go") === "type") { setTimeout(function () { $("text").focus(); }, 60); }
+    });
+  });
+
+  // ---------- uygulamalar ----------
+  var GLYPH = { "@search": "search", "@wifi": "wifi", "@power": "power", "@settings": "hex", "@remote": "phone" };
+  var apps = [], appsKey = "";
+  function renderApps(list, open) {
+    apps = list.filter(function (a) { return a.id !== "@remote"; });
+    var openNames = [];
+    var html = apps.map(function (a, i) {
+      var c = a.colors || ["#2a3142", "#151a26"];
+      var isOpen = open.hasOwnProperty(a.id);
+      if (isOpen) { openNames.push(a.name); }
+      var g = GLYPH[a.id] ? '<svg class="i"><use href="#i-' + GLYPH[a.id] + '"/></svg>' : esc((a.name || "?").charAt(0));
+      return '<button class="tile" data-i="' + i + '" style="background:linear-gradient(145deg,' + esc(c[0]) + ',' + esc(c[1] || c[0]) + ')">' +
+        (isOpen ? '<span class="live">Açık</span>' : "") +
+        '<span class="g">' + g + '</span>' +
+        '<span class="n">' + esc(a.name) + (a.sub ? '<span class="s">' + esc(a.sub) + '</span>' : "") + '</span></button>';
+    }).join("");
+    $("openSub").textContent = openNames.length ? openNames.join(", ") : "Açık uygulama yok";
+    $("appsEmpty").classList.toggle("hidden", apps.length > 0);
+    if (html === appsKey) { return; }     // gereksiz yeniden çizim dokunmayı bozmasın
+    appsKey = html;
+    $("grid").innerHTML = html;
+  }
+  $("grid").addEventListener("click", function (e) {
+    var t = e.target.closest ? e.target.closest(".tile") : null;
+    if (!t) { return; }
+    var a = apps[+t.getAttribute("data-i")];
+    if (!a) { return; }
+    buzz(14);
+    launch(a.id, "", a.name);
+  });
+
+  function launch(id, q, name) {
+    toast(q ? "“" + q + "” aranıyor…" : name + " açılıyor…");
+    send("/api/launch", q ? { id: id, q: q } : { id: id }, function (ok) {
+      if (ok) { go("remote"); }
+    });
+  }
+
+  $("searchBtn").addEventListener("click", function () {
+    var targets = apps.filter(function (a) { return a.search; });
+    if (!targets.length) { toast("Arama yapılabilecek uygulama yok", true); return; }
+    var sel = prefs.searchIn && targets.some(function (a) { return a.id === prefs.searchIn; }) ? prefs.searchIn : targets[0].id;
+    sheet('<h3>Ara</h3>' +
+      '<input class="sheet-input" id="q" type="search" placeholder="Film, dizi, şarkı, kanal…" enterkeyhint="search" autocomplete="off">' +
+      '<div class="chips" id="chips">' + targets.map(function (a) {
+        return '<button class="chip' + (a.id === sel ? " on" : "") + '" data-id="' + esc(a.id) + '">' + esc(a.name) + '</button>';
+      }).join("") + '</div>' +
+      '<div class="sheet-btns"><button class="primary" id="qGo"><svg class="i"><use href="#i-search"/></svg>Ara</button></div>');
+    $("chips").addEventListener("click", function (e) {
+      var c = e.target.closest ? e.target.closest(".chip") : null;
+      if (!c) { return; }
+      buzz(6);
+      sel = c.getAttribute("data-id");
+      all(".chip").forEach(function (x) { x.classList.toggle("on", x === c); });
+    });
+    function goSearch() {
+      var q = $("q").value.trim();
+      if (!q) { $("q").focus(); return; }
+      prefs.searchIn = sel;
+      savePrefs();
+      closeSheet();
+      launch(sel, q);
+    }
+    $("qGo").addEventListener("click", goSearch);
+    $("q").addEventListener("keydown", function (e) { if (e.keyCode === 13) { e.preventDefault(); goSearch(); } });
+    setTimeout(function () { $("q").focus(); }, 280);
+  });
+
+  // ---------- yaz ----------
+  // Canlı yazımda yazılanla TV'deki arasındaki fark gönderilir: silinen harf kadar geri tuşu, sonra yeni yazı.
+  var sent = "";
+  function setLive(on) {
+    prefs.live = on;
+    savePrefs();
+    $("liveSw").classList.toggle("on", on);
+    $("liveSub").textContent = on ? "Her harf anında TV'ye gider" : "Yazı Tamam'a basınca gönderilir";
+    $("enterBtn").lastChild.nodeValue = on ? "Tamam" : "Gönder";
+    sent = on ? $("text").value : "";
+  }
+  function syncText() {
+    var v = $("text").value.replace(/\n/g, "");
+    if (v !== $("text").value) { $("text").value = v; }
+    if (!prefs.live) { return; }
+    var i = 0;
+    while (i < v.length && i < sent.length && v.charAt(i) === sent.charAt(i)) { i++; }
+    var del = sent.length - i, add = v.slice(i);
+    sent = v;
+    if (del > 0) { send("/api/key", { key: "backspace", n: del }); }
+    if (add) { send("/api/text", { text: add }); }
+  }
+  function enter() {
+    buzz(12);
+    if (!prefs.live) {
+      var v = $("text").value;
+      if (!v) { press("ok"); return; }
+      send("/api/text", { text: v }, function (ok) { if (ok) { $("text").value = ""; toast("Gönderildi"); } });
+      return;
+    }
+    press("ok");
+    $("text").value = sent = "";
+  }
+  $("text").addEventListener("input", syncText);
+  $("text").addEventListener("keydown", function (e) { if (e.keyCode === 13) { e.preventDefault(); enter(); } });
+  $("enterBtn").addEventListener("click", enter);
+  $("clearBtn").addEventListener("click", function () {
+    buzz(8);
+    $("text").value = "";
+    syncText();
+    $("text").focus();
+  });
+  // Klavyedeki Sil tuşu TV'de de siler; yazı alanı onu ayrıca takip etmesin
+  all(".key[data-key=backspace]").forEach(function (b) {
+    b.addEventListener("pointerdown", function () {
+      if (prefs.live && sent) { sent = sent.slice(0, -1); $("text").value = sent; }
+    });
+  });
+  $("liveBtn").addEventListener("click", function () { buzz(6); setLive(!prefs.live); });
+
+  // ---------- sistem ----------
+  var POWER = {
+    closeapps: { t: "Açık uygulamalar kapatılsın mı?", d: "Tüm uygulamalar kapanır, beeOS ana ekranı açılır.", b: "Uygulamaları kapat", ok: "Uygulamalar kapatıldı" },
+    reboot: { t: "Yeniden başlatılsın mı?", d: "Bilgisayar yeniden başlar. Kumanda birkaç dakika içinde yeniden bağlanır.", b: "Yeniden başlat", ok: "Yeniden başlatılıyor…" },
+    off: { t: "Kapatılsın mı?", d: "Bilgisayar kapanır. Yeniden açmak için güç düğmesine basman gerekir.", b: "Kapat", ok: "Kapatılıyor…", danger: true }
+  };
+  all("[data-power]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var a = b.getAttribute("data-power"), o = POWER[a];
+      buzz(10);
+      sheet('<h3>' + o.t + '</h3><p>' + o.d + '</p><div class="sheet-btns">' +
+        '<button class="' + (o.danger ? "danger-btn" : "primary") + '" id="pwGo">' + o.b + '</button>' +
+        '<button class="ghost" id="pwNo">Vazgeç</button></div>');
+      $("pwNo").addEventListener("click", closeSheet);
+      $("pwGo").addEventListener("click", function () {
+        buzz(20);
+        closeSheet();
+        send("/api/power", { action: a }, function (ok) { if (ok) { toast(o.ok); refresh(); } });
+      });
+    });
+  });
+  $("hapticBtn").addEventListener("click", function () {
+    prefs.haptic = !prefs.haptic;
+    savePrefs();
+    $("hapticSw").classList.toggle("on", prefs.haptic);
+    buzz(14);
+  });
+  $("unpairBtn").addEventListener("click", function () {
+    sheet('<h3>Kumanda ayrılsın mı?</h3><p>Bu telefon beeOS\'u kontrol edemez. Yeniden bağlanmak için TV\'deki PIN gerekir.</p>' +
+      '<div class="sheet-btns"><button class="danger-btn" id="upGo">Ayır</button><button class="ghost" id="upNo">Vazgeç</button></div>');
+    $("upNo").addEventListener("click", closeSheet);
+    $("upGo").addEventListener("click", function () { closeSheet(); unpair(""); });
+  });
+
+  // ---------- alt sayfa / bildirim ----------
+  function sheet(html) {
+    $("sheetBody").innerHTML = html;
+    $("scrim").classList.add("on");
+    $("sheet").classList.add("on");
+  }
+  function closeSheet() {
+    if (document.activeElement && document.activeElement.blur) { document.activeElement.blur(); }
+    $("scrim").classList.remove("on");
+    $("sheet").classList.remove("on");
+  }
+  $("scrim").addEventListener("click", closeSheet);
+
+  var toastT = null;
+  function toast(text, err) {
+    var t = $("toast");
+    t.textContent = text;
+    t.className = "on" + (err ? " err" : "");
+    if (err) { buzz(40); }
+    clearTimeout(toastT);
+    toastT = setTimeout(function () { t.className = err ? "err" : ""; }, 2200);
+  }
+
+  // ---------- eşleşme ----------
+  function show(which) {
+    $("pair").classList.toggle("hidden", which !== "pair");
+    $("app").classList.toggle("hidden", which !== "app");
+    if (which === "pair") { setTimeout(function () { $("pin").focus(); }, 50); }
+  }
+
+  function paintDigits() {
+    var v = $("pin").value, ds = all(".digit");
+    ds.forEach(function (d, i) {
+      d.textContent = v.charAt(i);
+      d.className = "digit" + (v.charAt(i) ? " fill" : "") + (i === Math.min(v.length, 5) && document.activeElement === $("pin") ? " cur" : "");
+    });
+    $("pairBtn").disabled = v.length !== 6;
+  }
+
+  function pairError(text) {
+    var d = $("digits");
+    $("msg").textContent = text;
+    $("msg").className = "err";
+    d.classList.remove("shake");
+    void d.offsetWidth;
+    d.classList.add("shake");
+    buzz(60);
+    $("pin").value = "";
+    paintDigits();
+    $("pin").focus();
+  }
+
+  var pairing = false;
   function pair() {
-    pin = $("pin").value.replace(/\D/g, "");
-    if (pin.length !== 6) { $("msg").textContent = "PIN 6 haneli olmalı"; return; }
+    var v = $("pin").value.replace(/\D/g, "");
+    if (v.length !== 6 || pairing) { return; }
+    pairing = true;
+    pin = v;
     $("msg").textContent = "Bağlanıyor…";
+    $("msg").className = "";
     call("/api/pair", null, function (status, res) {
+      pairing = false;
       if (status === 200 && res.ok) {
         try { localStorage.setItem(KEY, pin); } catch (e) {}
         $("msg").textContent = "";
-        show("remote");
+        $("pin").blur();
+        buzz(30);
+        start();
+        toast("Kumanda bağlandı");
       } else {
-        $("msg").textContent = res.error || "beeOS'a ulaşılamadı";
+        pin = "";
+        pairError(res.error || "beeOS'a ulaşılamadı. Aynı ağda mısın?");
       }
     });
   }
 
-  function press(key) {
-    if (navigator.vibrate) { navigator.vibrate(12); }
-    call("/api/key", { key: key }, handle);
+  function unpair(text) {
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    pin = "";
+    clearTimeout(stateTimer);
+    closeSheet();
+    $("pin").value = "";
+    paintDigits();
+    $("msg").textContent = text;
+    $("msg").className = text ? "err" : "";
+    show("pair");
   }
 
-  function sendText() {
-    var t = $("text").value;
-    if (!t) { return; }
-    call("/api/text", { text: t }, function (status, res) {
-      if (handle(status, res)) { $("text").value = ""; }
-    });
-  }
-
-  var btns = document.querySelectorAll("[data-key]");
-  for (var i = 0; i < btns.length; i++) {
-    btns[i].addEventListener("click", (function (k) { return function () { press(k); }; })(btns[i].getAttribute("data-key")));
-  }
-  $("pairBtn").addEventListener("click", pair);
+  $("pin").addEventListener("input", function () {
+    $("pin").value = $("pin").value.replace(/\D/g, "").slice(0, 6);
+    $("msg").textContent = "";
+    paintDigits();
+    if ($("pin").value.length === 6) { pair(); }
+  });
+  $("pin").addEventListener("focus", paintDigits);
+  $("pin").addEventListener("blur", paintDigits);
   $("pin").addEventListener("keydown", function (e) { if (e.keyCode === 13) { pair(); } });
-  $("send").addEventListener("click", sendText);
-  $("text").addEventListener("keydown", function (e) { if (e.keyCode === 13) { sendText(); } });
+  $("pairBtn").addEventListener("click", pair);
 
-  show(pin ? "remote" : "pair");
+  function start() {
+    show("app");
+    go("remote");
+    refresh();
+  }
+
+  // ---------- tarayıcı testi ----------
+  var M = { vol: { level: 35, muted: false }, open: { "youtube.leanback.v4": "Lofi hip hop radio" } };
+  function mock(path, b, cb) {
+    if (path === "/api/pair" || path === "/api/state" || pin !== "123456") {
+      if (pin !== "123456") { cb(401, { ok: false, error: "PIN yanlış" }); return; }
+    }
+    if (path === "/api/state") {
+      cb(200, { ok: true, version: "0.4.0", online: true, network: "Ev-WiFi", volume: M.vol, open: M.open, apps: [
+        { id: "@search", name: "Ara", sub: "Sistem", colors: ["#2b3242", "#141925"] },
+        { id: "youtube.leanback.v4", name: "YouTube", sub: "Video", colors: ["#ef2b22", "#6d0a0a"], search: true },
+        { id: "netflix", name: "Netflix", sub: "Dizi & Film", colors: ["#e50914", "#4a0207"], search: true },
+        { id: "amazon", name: "Prime Video", sub: "Dizi & Film", colors: ["#0aa5df", "#06374f"], search: true },
+        { id: "com.disney.disneyplus-prod", name: "Disney+", sub: "Dizi & Film", colors: ["#2a54e0", "#0a1650"], search: true },
+        { id: "spotify-beehive", name: "Spotify", sub: "Müzik", colors: ["#1fc45c", "#0a4a22"], search: true },
+        { id: "com.webos.app.browser", name: "Tarayıcı", sub: "İnternet", colors: ["#8b4cf0", "#2a1066"], search: true },
+        { id: "@wifi", name: "Wi-Fi", sub: "Sistem", colors: ["#2b3242", "#141925"] },
+        { id: "@power", name: "Güç", sub: "Sistem", colors: ["#2b3242", "#141925"] },
+        { id: "@settings", name: "beeOS", sub: "Sistem", colors: ["#2b3242", "#141925"] }] });
+      return;
+    }
+    if (path === "/api/key" && /^vol|mute/.test(b.key)) {
+      if (b.key === "mute") { M.vol.muted = !M.vol.muted; }
+      else { M.vol.level = Math.max(0, Math.min(100, M.vol.level + (b.key === "volup" ? 5 : -5))); M.vol.muted = false; }
+      cb(200, { ok: true, volume: M.vol });
+      return;
+    }
+    if (path === "/api/volume") { M.vol = { level: b.level, muted: false }; cb(200, { ok: true, volume: M.vol }); return; }
+    if (path === "/api/power" && b.action === "closeapps") { M.open = {}; }
+    cb(200, { ok: true });
+  }
+
+  // ---------- açılış ----------
+  setCtl(prefs.ctl === "touch" ? "touch" : "pad");
+  setLive(prefs.live !== false);
+  $("hapticSw").classList.toggle("on", prefs.haptic);
+  paintRange();
+  paintDigits();
+  if (pin) { start(); } else { show("pair"); }
 })();
 </script>
 </body>

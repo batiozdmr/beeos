@@ -1,0 +1,43 @@
+# v* etiketi push edilince güncelleme paketini üretir ve GitHub Release olarak yayınlar.
+# Cihazlar (beeOS Ayarları > Güncellemeleri kontrol et) son release'i buradan bulur.
+#   python tools/release.py bump 0.5.0 && git commit -am "beeOS 0.5.0"
+#   python tools/release.py tag && git push origin HEAD v0.5.0
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Etiket appinfo.json sürümüyle aynı mı
+        run: |
+          v=$(python tools/release.py version)
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "etiket $GITHUB_REF_NAME, appinfo.json $v"; exit 1; }
+
+      - name: Kontroller
+        run: |
+          python -m py_compile os/backend/beeos_server.py tools/*.py
+          for f in js/*.js os/backend/osd.js; do node --check "$f"; done
+          for f in os/*.sh os/overlay/opt/beeos/bin/beeos-*; do bash -n "$f"; done
+
+      - name: Güncelleme paketi
+        run: python tools/release.py pack
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" build/release/beeos-update-* \
+            --title "beeOS ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag
