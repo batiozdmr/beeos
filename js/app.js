@@ -489,6 +489,8 @@
           if (launching !== item) { return; }   // Geri ile vazgeçildi
           launching = null;
           if (!res || !res.ok) { launchFailed(item, res && res.error); return; }
+          // Uygulama öne geldi; gizlenme olayı cevaptan önce geldiyse yükleme ekranını burada kapat
+          if (document.hidden || document.webkitHidden) { hideLoader(); }
           if (Platform.mock()) { hideLoader(); toast("Test: " + item.name + " → " + (opt.url || item.web)); }
         });
       return;
@@ -1845,6 +1847,9 @@
     if (hidden) {
       // Gizliyken solma animasyonu ilerlemez; dönüşte yükleme ekranı hayalet gibi görünmesin
       $("loader").style.webkitTransition = $("loader").style.transition = "none";
+      // PC: arka uç yeni sekmeyi açarken beeOS bir an gizlenip geri gelir (yavaş makinede, VM'de bu
+      // olay araya girer). Yükleme ekranı açılış cevabıyla kapanır.
+      if (launching && Platform.name() === "pc") { return; }
       hideLoader();
       launching = null;
       return;
