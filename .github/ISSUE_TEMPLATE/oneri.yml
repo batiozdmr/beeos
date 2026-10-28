@@ -1,0 +1,15 @@
+name: Öneri
+description: Yeni bir özellik veya iyileştirme öner
+labels: ["öneri"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Öneri
+      description: Ne olsun, kimin işine yarar?
+    validations:
+      required: true
+  - type: textarea
+    id: alt
+    attributes:
+      label: Düşündüğün alternatifler
