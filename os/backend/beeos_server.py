@@ -6,6 +6,7 @@
   Chrome ile DevTools protokolü (127.0.0.1:9222) üzerinden konuşur.
 - Wi-Fi (nmcli) ve güç (systemctl) işlemleri, bağlantı durumu, ekran koruyucu fotoğrafları.
 - Telefon kumandası: yerel ağda ayrı bir portta (8081) küçük bir sayfa; PIN ile korunur.
+- Canlı TV: CORS izni vermeyen yayınları arayüze aktarır (/api/tv/proxy).
 
 Arayüz sunucusu sadece 127.0.0.1'i dinler. Açılan web sitelerinin bu adrese istek atmasını (CSRF)
 engellemek için /api/ istekleri "X-BeeOS" başlığı ister; tarayıcı bu başlığı başka sitelerden ön
@@ -16,12 +17,14 @@ import hashlib
 import hmac
 import html
 import http.server
+import ipaddress
 import json
 import mimetypes
 import os
 import re
 import secrets
 import shutil
+import socket
 import subprocess
 import sys
 import tarfile
@@ -650,6 +653,105 @@ def photo_list():
     return {"ok": True, "photos": ["/photos/%d" % i for i in range(len(photos))]}
 
 
+# ---------- canlı TV: yayın aktarıcı ----------
+# hls.js yayını tarayıcıdan okur; CORS izni vermeyen yayınlar bu adres üzerinden açılır:
+#   /api/tv/proxy?u=<adres>        yayın listesiyse (m3u8) içindeki adresler de buraya çevrilir
+#   /api/tv/proxy?raw=1&u=<adres>  dosya olduğu gibi (kanal listesi M3U)
+# Sadece http(s). Bilgisayarın kendisine (DevTools portu dahil) ve bağlantı-yerel adreslere gidilmez;
+# yerel ağdaki IPTV sunucularına (Tvheadend vb.) izin var. İstek /api/ kuralıyla X-BeeOS başlığı ister.
+STREAM_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+             "Chrome/130.0.0.0 Safari/537.36")
+TV_PROXY = "/api/tv/proxy?u="
+TV_MAX = 64 * 1024 * 1024        # tek parça (segment) için üst sınır
+TV_LIST_MAX = 8 * 1024 * 1024    # yayın / kanal listesi için üst sınır
+
+
+def tv_url_ok(url):
+    u = urllib.parse.urlsplit(url)
+    if u.scheme not in ("http", "https") or not u.hostname:
+        return False
+    try:
+        infos = socket.getaddrinfo(u.hostname, u.port or None)
+    except (OSError, ValueError):
+        return False
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0].split("%")[0])
+        if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified or ip.is_reserved:
+            return False
+    return True
+
+
+class TvRedirect(urllib.request.HTTPRedirectHandler):
+    """Yönlendirme de aynı denetimden geçer (dış adres bilgisayarın kendisine yönlendiremez)."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not tv_url_ok(newurl):
+            raise urllib.error.URLError("izin verilmeyen adres")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+tv_opener = urllib.request.build_opener(TvRedirect)
+
+
+def tv_rewrite(text, base):
+    """m3u8 içindeki alt liste / parça / anahtar adreslerini aktarıcıya çevirir."""
+    def prox(ref):
+        return TV_PROXY + urllib.parse.quote(urllib.parse.urljoin(base, ref), safe="")
+    out = []
+    for line in text.splitlines():
+        s = line.strip()
+        if s and not s.startswith("#"):
+            line = prox(s)
+        elif 'URI="' in s:
+            line = re.sub(r'URI="([^"]+)"', lambda m: 'URI="%s"' % prox(m.group(1)), line)
+        out.append(line)
+    return "\n".join(out) + "\n"
+
+
+def tv_proxy(h, query):
+    q = urllib.parse.parse_qs(query)
+    url = (q.get("u") or [""])[0]
+    raw = q.get("raw") == ["1"]
+    if not tv_url_ok(url):
+        h.send_error(400)
+        return
+    req = urllib.request.Request(url, headers={"User-Agent": STREAM_UA, "Accept": "*/*"})
+    try:
+        r = tv_opener.open(req, timeout=15)
+    except urllib.error.HTTPError as e:
+        h.send_error(e.code if 400 <= e.code < 600 else 502)
+        return
+    except (urllib.error.URLError, OSError, ValueError):
+        h.send_error(502)
+        return
+    try:
+        with r:
+            ctype = r.headers.get("Content-Type") or "application/octet-stream"
+            first = r.read(65536)
+            if not raw and first.lstrip().startswith(b"#EXTM3U"):
+                body = first + r.read(TV_LIST_MAX)
+                body = tv_rewrite(body.decode("utf-8", "replace"), r.geturl()).encode("utf-8")
+                h.send_response(200)
+                h.send_header("Content-Type", "application/vnd.apple.mpegurl")
+                h.send_header("Content-Length", str(len(body)))
+                h.end_headers()
+                h.wfile.write(body)
+                return
+            h.send_response(200)
+            h.send_header("Content-Type", ctype)
+            if r.headers.get("Content-Length"):
+                h.send_header("Content-Length", r.headers["Content-Length"])
+            h.end_headers()
+            sent, chunk = 0, first
+            while chunk and sent < (TV_LIST_MAX if raw else TV_MAX):
+                h.wfile.write(chunk)
+                sent += len(chunk)
+                chunk = r.read(65536)
+    except (BrokenPipeError, ConnectionResetError):
+        pass       # kanal değişince oynatıcı isteği yarıda bırakır
+    except OSError as e:
+        log("tv proxy", repr(e))
+
+
 # ---------- telefon kumandası ----------
 remote = {"enabled": True, "pin": "", "seq": 0}   # seq: başarılı eşleşme sayısı (beeOS'ta bildirim)
 fails = {"n": 0, "until": 0.0}
@@ -1107,11 +1209,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
     def route(self, method):
-        path = urllib.parse.urlparse(self.path).path
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
         if not path.startswith("/api/"):
             return False
         if not self.api_allowed():
             send_json(self, {"ok": False, "error": "forbidden"}, 403)
+            return True
+        if method == "GET" and path == "/api/tv/proxy":
+            tv_proxy(self, parsed.query)
             return True
         b = read_body(self) if method == "POST" else {}
         try:

@@ -15,6 +15,7 @@ davranış kuralları: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), güvenlik bildi
 - Hero'da büyük marka ikonu ve içerik satırı: PC'de açık sekmenin başlığı ("Devam et"), yoksa son açılış
 - Odak açılışta en son açılan uygulamada başlar; rafta ekran dışında kart varsa kenarda ok görünür
 - Açılış animasyonu, uygulama açılış ekranı, yükleme sırasında iskelet kartlar
+- **Canlı TV** ("TV" kartı): antensiz, internetten canlı kanallar (bkz. *Canlı TV*)
 - **Arama** ("Ara" kartı; PC'de ana ekranda harf yazmak yeter): yazılanı seçilen uygulamada arar
 - **Ekran klavyesi**: kumandayla yazı (Wi-Fi şifresi, kullanıcı adı, arama). Fiziksel klavye de yazar
 - Bağlantı göstergesi ve bildirimi (internet kopunca / gelince)
@@ -33,9 +34,24 @@ davranış kuralları: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), güvenlik bildi
 - `js/config.js`  kartlar ve ikonlar (uygulama kimlikleri burada)
 - `js/platform.js`  ortam algılama (TV / PC / tarayıcı) ve PC arka ucu çağrıları
 - `js/store.js`  ayar saklama, `js/sound.js`  ses efektleri, `js/app.js`  mantık
+- `js/channels.js`  yerleşik TV kanalları, `js/tv.js`  TV oynatıcı ve kanal listesi
+- `js/vendor/hls.min.js`  [hls.js](https://github.com/video-dev/hls.js) 1.5.20 (Apache-2.0): PC'de HLS oynatma
 - `js/logos.js`  marka logoları (`tools/build_logos.py` ile üretilir)
 - `logos/`  isteğe bağlı kendi logo PNG'lerin (bkz. `logos/BENIOKU.txt`)
 - `tools/make_icons.py`  beeOS uygulama ikonu üretici
+
+## Canlı TV
+"TV" kartı tam ekran canlı yayın açar; son izlenen kanaldan başlar.
+- **Kanallar**: yayıncıların kendi sitelerinde ücretsiz sunduğu resmî yayın adresleri (`js/channels.js`:
+  TRT kanalları, Kanal D, Star, TV8, NTV, Habertürk...). Şifreli/süreli yayınlar ve üçüncü kişilerin yeniden
+  yayınları eklenmez. Adresler zamanla değişebilir. TRT 2, TRT Genç, TRT Spor Yıldız sadece Türkiye'den açılır.
+- **Kendi listen**: Ayarlar > TV > *M3U listesi ekle*. IPTV aboneliğinin M3U adresi ya da tek bir `.m3u8` yayın
+  adresi. Liste kanalları yerleşik kanallardan sonra numaralanır; `group-title` ve `tvg-logo` okunur.
+- **Tuşlar**: yukarı/aşağı veya CH+/CH− (PC: PageUp/PageDown) kanal değiştirir · 0-9 numarayla kanala gider ·
+  0 önceki kanal · OK veya sol kanal listesi (sağ/sol grup: Tümü, Favoriler, gruplar) · Sarı (F3) favori ·
+  Mavi (F4) önceki kanal · Yeşil (F2) veya sağ kanal bilgisi · Geri ana ekran.
+- **Oynatma**: webOS'ta TV'nin kendi oynatıcısı. PC'de hls.js; CORS izni vermeyen yayınlar (Kanal D, Star, NTV...)
+  arka uçtaki aktarıcıdan (`/api/tv/proxy`) geçer. Tarayıcı testinde aktarıcı yoktur, o kanallar açılmaz.
 
 ## Tarayıcıda test
 ```

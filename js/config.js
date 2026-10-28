@@ -7,6 +7,7 @@
 // only: "tv" | "pc"  kart sadece o ortamda görünür.
 // search: arama adresi ({q} = aranan söz). tvParam: TV'de aramanın uygulamaya hangi parametreyle
 //   gideceği (yoksa kart TV'de arama listesinde çıkmaz).
+// "@" ile başlayan kimlikler beeOS'un kendi ekranlarıdır (@tv: internet TV, @settings: ayarlar...).
 
 function svgIcon(inner) {
   return '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="#fff" ' +
@@ -45,6 +46,7 @@ var CONFIG = {
         { name: "Prime Video", cat: "Uygulama", sub: "Dizi & Film", icon: "play",  id: "amazon", web: "https://www.primevideo.com", search: "https://www.primevideo.com/search?phrase={q}", colors: ["#0aa5df", "#06374f"], desc: "Orijinal yapımlar, filmler ve diziler." },
         { name: "Disney+",     cat: "Uygulama", sub: "Dizi & Film", icon: "play",  id: "com.disney.disneyplus-prod", web: "https://www.disneyplus.com", search: "https://www.disneyplus.com/search?q={q}", colors: ["#2a54e0", "#0a1650"], desc: "Disney, Marvel, Star Wars ve daha fazlası." },
         { name: "Spotify",     cat: "Uygulama", sub: "Müzik",       icon: "music", id: "spotify-beehive", web: "https://open.spotify.com", search: "https://open.spotify.com/search/{q}", colors: ["#1fc45c", "#0a4a22"], desc: "Çalma listeleri, podcast'ler ve sevdiğin sanatçılar." },
+        { name: "TV",          cat: "Canlı TV", sub: "Kanallar",    icon: "tv",    id: "@tv", colors: ["#f5a524", "#5a3405"], desc: "Antensiz, internetten canlı TV kanalları. Yukarı/aşağı ile kanal değiştir, OK ile kanal listesi." },
         { name: "Tarayıcı",    cat: "Uygulama", sub: "İnternet",    icon: "globe", id: "com.webos.app.browser", web: "https://www.google.com", search: "https://www.google.com/search?q={q}", tvParam: "target", colors: ["#8b4cf0", "#2a1066"], desc: "İnternette gez, haberleri oku, siteleri aç." }
       ]
     },

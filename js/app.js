@@ -23,7 +23,7 @@
   var rows = [];           // { el, track, cards[], index, cardW }
   var focusRow = 0;
   var focusId = null;      // yeniden çizimden sonra odaklanacak kart
-  var mode = "home";       // home | panel | menu | osk | saver | loading | boot
+  var mode = "home";       // home | panel | menu | osk | saver | loading | boot | tv
   var installed = null;    // TV'den gelen yüklü uygulamalar (rafa eklenenler)
   var tvIcons = {};        // { uygulamaId: TV'deki gerçek ikon yolu }
   var missingImg = {};     // yüklenemeyen görseller: tekrar denenmez
@@ -479,6 +479,7 @@
     if (item.id === "@power") { openPower(); return; }
     if (item.id === "@search") { openSearch(""); return; }
     if (item.id === "@remote") { openRemote(); return; }
+    if (item.id === "@tv") { openTv(); return; }
     Sound.play("select");
     showLoader(item);
     launching = item;
@@ -730,6 +731,7 @@
     if (!t) { el.textContent = osk.placeholder; el.className = "ph"; return; }
     el.textContent = osk.secret && !osk.show ? new Array(t.length + 1).join("•") : t;
     el.className = "";
+    $("oskField").scrollLeft = 100000;   // uzun yazıda (liste adresi) sonu ve imleç görünsün
   }
 
   function oskSelect(r, c) {
@@ -874,6 +876,9 @@
     { group: "Bağlantılar", label: "Ağ ve Bluetooth", type: "action", only: "tv",
       info: function () { return "TV ayarlarında açılır"; },
       run: function () { closePanel(); launch(findItem("com.palm.app.settings") || TV_SETTINGS); } },
+    { group: "TV", label: "Kanallar ve listeler", type: "action",
+      info: function () { return tvSummary(); },
+      run: function () { fromSettingsRow(openTvLists); } },
     { group: "Ekran koruyucu", key: "saverMin", label: "Bekleme süresi", values: [0, 5, 10, 30], names: ["Kapalı", "5 dk", "10 dk", "30 dk"] },
     { key: "saverStyle", label: "Stil", only: "pc", values: ["clock", "hive", "flow", "photos"], names: ["Saat", "Petek", "Renk akışı", "Fotoğraflar"] },
     { key: "saverStyle", label: "Stil", only: "tv", values: ["clock", "hive", "flow"], names: ["Saat", "Petek", "Renk akışı"] },
@@ -1073,6 +1078,85 @@
     else if ((k === 403 || k === 112) && !view.back) { closePanel(); }
     else { return false; }
     return true;
+  }
+
+  // ---------- canlı TV (js/tv.js) ----------
+  function openTv() {
+    pressCancel();
+    Sound.play("open");
+    mode = "tv";
+    TV.open();
+  }
+
+  function closeTv() {
+    TV.close();
+    mode = "home";
+    resetIdle();
+  }
+
+  // Ayarlar > TV: yerleşik kanallar ve eklenen M3U listeleri
+  var tvNew = "", tvBusy = false;
+
+  function tvSummary() {
+    var n = S.tvLists.length;
+    return (S.tvBuiltin ? TV_CHANNELS.length + " yerleşik kanal" : "Yerleşik kapalı") + (n ? " · " + n + " liste" : "");
+  }
+
+  function openTvLists() {
+    openPanel(tvListsView());
+  }
+
+  function tvListsView() {
+    var defs = [
+      { group: "Kanallar", key: "tvBuiltin", label: "Yerleşik kanallar", values: ON_OFF.values,
+        names: ["Açık · " + TV_CHANNELS.length + " kanal", "Kapalı"] },
+      { label: "M3U listesi ekle", type: "text", max: 400, placeholder: tvBusy ? "Liste denetleniyor…" : "https://…/liste.m3u",
+        get: function () { return tvNew; }, set: function (v) { tvNew = trim(v); }, next: addTvList }
+    ];
+    S.tvLists.forEach(function (l, i) {
+      defs.push({ group: i === 0 ? "Eklenen listeler" : null, label: l.name, type: "action", confirm: true,
+        info: function () { var s = TV.listInfo(l.url); return (s ? s + " · " : "") + "OK: kaldır"; },
+        run: function () { removeTvList(l); } });
+    });
+    return withBack({ head: "TV kanalları", tv: true, rows: defs,
+      note: "Kendi IPTV aboneliğinin ya da yayıncıların açıkça paylaştığı M3U listesinin adresini ekleyebilirsin. " +
+            "Tek bir yayın adresi (.m3u8) de olur. Kanallar yerleşik kanalların ardından numaralanır.",
+      sub: "Yukarı/aşağı: seç · OK: değiştir · Geri: kapat",
+      foot: "TV'de: yukarı/aşağı kanal · OK liste · 0-9 numara · Sarı favori · Mavi önceki kanal" });
+  }
+
+  function addTvList() {
+    var url = tvNew;
+    if (tvBusy || !url) { renderPanel(); return; }
+    if (!/^https?:\/\/[^\s]+$/i.test(url)) { Sound.play("error"); toast("Adres http:// ya da https:// ile başlamalı"); renderPanel(); return; }
+    for (var i = 0; i < S.tvLists.length; i++) {
+      if (S.tvLists[i].url === url) { Sound.play("edge"); toast("Bu liste zaten ekli"); renderPanel(); return; }
+    }
+    tvBusy = true;
+    refreshView("tv", tvListsView);
+    TV.check(url, function (n) {
+      tvBusy = false;
+      if (n > 0) {
+        S.tvLists.push({ name: TV.hostOf(url), url: url });
+        save();
+        tvNew = "";
+        Sound.play("select");
+        toast(n + " kanal eklendi");
+      } else {
+        TV.forget(url);
+        Sound.play("error");
+        toast(n < 0 ? "Liste indirilemedi. Adresi ve bağlantıyı kontrol et." : "Bu adreste kanal bulunamadı");
+      }
+      refreshView("tv", tvListsView);
+    });
+  }
+
+  function removeTvList(l) {
+    S.tvLists = S.tvLists.filter(function (x) { return x !== l; });
+    save();
+    TV.forget(l.url);
+    toast(l.name + " listesi kaldırıldı");
+    refreshView("tv", tvListsView);
   }
 
   // ---------- PC: Wi-Fi ----------
@@ -1784,7 +1868,8 @@
       return;
     }
     if (mode === "saver") { hideSaver(); e.preventDefault(); return; }
-    var handled = mode === "osk" ? oskKey(k) : mode === "panel" ? panelKey(k) : mode === "menu" ? menuKey(k) : homeKey(k);
+    var handled = mode === "tv" ? TV.key(k) : mode === "osk" ? oskKey(k) : mode === "panel" ? panelKey(k) :
+                  mode === "menu" ? menuKey(k) : homeKey(k);
     if (handled) { e.preventDefault(); }
   }
 
@@ -1820,6 +1905,8 @@
   }
 
   // ---------- başlat ----------
+  TV.init({ settings: function () { return S; }, save: save, toast: toast, sound: function (s) { Sound.play(s); },
+            clock: function () { return fmtTime(new Date()); }, close: closeTv });
   fitStage();
   window.addEventListener("resize", fitStage);
   document.addEventListener("keydown", onKeyDown);
@@ -1844,6 +1931,7 @@
   window.addEventListener("offline", pollStatus);
   // Başka uygulama öne gelince sayfa gizlenir: yükleme ekranını kapat. Geri dönünce durumu yenile.
   function onVisibility(hidden) {
+    TV.suspend(hidden);
     if (hidden) {
       // Gizliyken solma animasyonu ilerlemez; dönüşte yükleme ekranı hayalet gibi görünmesin
       $("loader").style.webkitTransition = $("loader").style.transition = "none";
@@ -1883,6 +1971,7 @@
     // Açık katmanları kapat (klavye panelden açılmış olabilir)
     for (var i = 0; i < 3 && mode !== "home" && mode !== "loading"; i++) {
       if (mode === "saver") { hideSaver(); }
+      else if (mode === "tv") { closeTv(); }
       else if (mode === "boot") { finishBoot(); }
       else if (mode === "osk") { finishOsk(false); }
       else if (mode === "panel") { closePanel(); }

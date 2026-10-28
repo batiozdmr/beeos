@@ -21,7 +21,11 @@ var Store = (function () {
     order: {},           // { rafBaşlığı: [id, id, ...] }
     hidden: [],          // gizlenen kart kimlikleri
     usage: {},           // { id: açılma sayısı }
-    lastOpen: {}         // { id: son açılış zamanı (ms) }
+    lastOpen: {},        // { id: son açılış zamanı (ms) }
+    tvBuiltin: true,     // TV: yerleşik kanallar (js/channels.js)
+    tvLists: [],         // TV: eklenen M3U listeleri [{ name, url }]
+    tvFav: [],           // TV: favori kanalların yayın adresleri
+    tvLast: ""           // TV: son izlenen kanalın yayın adresi
   };
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
