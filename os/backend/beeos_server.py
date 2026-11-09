@@ -12,6 +12,7 @@ Arayüz sunucusu sadece 127.0.0.1'i dinler. Açılan web sitelerinin bu adrese i
 engellemek için /api/ istekleri "X-BeeOS" başlığı ister; tarayıcı bu başlığı başka sitelerden ön
 kontrolsüz göndermez. Kumanda sunucusu her işlemde "X-BeeOS-PIN" başlığı ister.
 """
+import fcntl
 import glob
 import hashlib
 import hmac
@@ -25,6 +26,7 @@ import re
 import secrets
 import shutil
 import socket
+import struct
 import subprocess
 import sys
 import tarfile
@@ -795,7 +797,32 @@ def lan_urls():
     p = subprocess.run(["ip", "-4", "-o", "addr", "show", "scope", "global"],
                        capture_output=True, text=True, timeout=5)
     ips = re.findall(r"inet (\d+\.\d+\.\d+\.\d+)/", p.stdout)
-    return ["http://%s:%d" % (ip, REMOTE_PORT) for ip in ips]
+    # HTTPS: WebRTC/getDisplayMedia yalnız secure context'te çalışır. Sertifika kendinden imzalı,
+    # tarayıcı ilk açılışta "güvenli değil" uyarısı verir; bir kez kabul etmek yeter.
+    return ["https://%s:%d" % (ip, REMOTE_PORT) for ip in ips]
+
+
+REMOTE_CERT = os.path.join(STATE_DIR, "remote-cert.pem")
+REMOTE_KEY = os.path.join(STATE_DIR, "remote-key.pem")
+
+
+def remote_cert():
+    """Telefon kumandası için kendinden imzalı sertifika üretir (ilk açılışta). CN=beeos-remote."""
+    if os.path.exists(REMOTE_CERT) and os.path.exists(REMOTE_KEY):
+        return True
+    os.makedirs(STATE_DIR, exist_ok=True)
+    try:
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+                        "-keyout", REMOTE_KEY, "-out", REMOTE_CERT,
+                        "-days", "3650", "-subj", "/CN=beeos-remote",
+                        "-addext", "subjectAltName=DNS:beeos,DNS:localhost"],
+                       check=True, capture_output=True, timeout=20)
+        os.chmod(REMOTE_KEY, 0o600)
+        os.chmod(REMOTE_CERT, 0o644)
+        return True
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        log("sertifika üretilemedi:", repr(e))
+        return False
 
 
 def remote_info():
@@ -906,6 +933,155 @@ def remote_state():
     st = status()
     return {"ok": True, "version": VERSION, "apps": catalog, "open": running, "volume": volume_get(),
             "online": st["online"], "network": st["name"]}
+
+
+# ---------- fare (touchpad): /dev/uinput ile sanal fare ----------
+# Phone remote'tan gelen delta/tıklama olayları kernel'e yazılır; libinput onu normal bir fare gibi sway'e verir.
+# Bee kullanıcısı "input" grubunda (bkz. os/build.sh). Backend root çalışır, /dev/uinput'a yazabilir.
+class UInputMouse:
+    EV_SYN, EV_KEY, EV_REL = 0, 1, 2
+    SYN_REPORT = 0
+    REL_X, REL_Y, REL_WHEEL = 0, 1, 8
+    BTN_LEFT, BTN_RIGHT, BTN_MIDDLE = 0x110, 0x111, 0x112
+    UI_SET_EVBIT = 0x40045564
+    UI_SET_KEYBIT = 0x40045565
+    UI_SET_RELBIT = 0x40045566
+    UI_DEV_SETUP = 0x405C5503   # _IOW('U', 3, struct uinput_setup) ; sizeof=92
+    UI_DEV_CREATE = 0x5501
+    UI_DEV_DESTROY = 0x5502
+    BTN = {"left": BTN_LEFT, "right": BTN_RIGHT, "middle": BTN_MIDDLE}
+
+    def __init__(self):
+        self.fd = None
+        self.lock = threading.Lock()
+
+    def _open(self):
+        try:
+            fd = os.open("/dev/uinput", os.O_WRONLY | os.O_NONBLOCK)
+        except OSError as e:
+            log("uinput açılamadı:", repr(e))
+            return None
+        try:
+            for t in (self.EV_KEY, self.EV_REL, self.EV_SYN):
+                fcntl.ioctl(fd, self.UI_SET_EVBIT, t)
+            for b in (self.BTN_LEFT, self.BTN_RIGHT, self.BTN_MIDDLE):
+                fcntl.ioctl(fd, self.UI_SET_KEYBIT, b)
+            for r in (self.REL_X, self.REL_Y, self.REL_WHEEL):
+                fcntl.ioctl(fd, self.UI_SET_RELBIT, r)
+            setup = struct.pack("HHHH80sI", 6, 0x1234, 0x5678, 1, b"beeOS telefon touchpad", 0)
+            fcntl.ioctl(fd, self.UI_DEV_SETUP, setup)
+            fcntl.ioctl(fd, self.UI_DEV_CREATE)
+        except OSError as e:
+            log("uinput kurulamadı:", repr(e))
+            os.close(fd)
+            return None
+        time.sleep(0.15)   # sway'in cihazı görmesi için kısa bekleme
+        return fd
+
+    def _ensure(self):
+        if self.fd is None:
+            self.fd = self._open()
+        return self.fd is not None
+
+    def _emit(self, type_, code, value):
+        # input_event: struct timeval (ll=16) + __u16 type + __u16 code + __s32 value = 24 bayt
+        os.write(self.fd, struct.pack("llHHi", 0, 0, type_, code, value))
+
+    def _sync(self):
+        self._emit(self.EV_SYN, self.SYN_REPORT, 0)
+
+    def do(self, dx=0, dy=0, click=None, down=None, up=None, wheel=0):
+        with self.lock:
+            if not self._ensure():
+                return False
+            try:
+                if dx:
+                    self._emit(self.EV_REL, self.REL_X, int(dx))
+                if dy:
+                    self._emit(self.EV_REL, self.REL_Y, int(dy))
+                if wheel:
+                    self._emit(self.EV_REL, self.REL_WHEEL, int(wheel))
+                if click:
+                    code = self.BTN.get(str(click).lower(), self.BTN_LEFT)
+                    self._emit(self.EV_KEY, code, 1); self._sync()
+                    self._emit(self.EV_KEY, code, 0)
+                if down:
+                    self._emit(self.EV_KEY, self.BTN.get(str(down).lower(), self.BTN_LEFT), 1)
+                if up:
+                    self._emit(self.EV_KEY, self.BTN.get(str(up).lower(), self.BTN_LEFT), 0)
+                self._sync()
+                return True
+            except OSError as e:
+                log("uinput yazım başarısız:", repr(e))
+                try: os.close(self.fd)
+                except Exception: pass
+                self.fd = None
+                return False
+
+
+uinput_mouse = UInputMouse()
+
+
+def remote_cursor(b):
+    def num(k, lo, hi):
+        v = b.get(k, 0)
+        try: v = int(v)
+        except (TypeError, ValueError): v = 0
+        return max(lo, min(hi, v))
+    ok = uinput_mouse.do(num("dx", -300, 300), num("dy", -300, 300),
+                         b.get("click"), b.get("down"), b.get("up"),
+                         num("wheel", -15, 15))
+    return {"ok": True} if ok else {"ok": False, "error": "Fare açılamadı (uinput)"}
+
+
+# ---------- ekran yansıtma: WebRTC sinyal rolesi (video verisi doğrudan P2P akar) ----------
+# Telefon offerer, TV (mirror.html) answerer. Sinyal takası küçük bir in-memory kutuda.
+mirror = {"offer": None, "answer": None, "offer_ice": [], "answer_ice": [], "ts": 0.0}
+mirror_lock = threading.Lock()
+
+
+def mirror_reset():
+    with mirror_lock:
+        mirror["offer"] = None
+        mirror["answer"] = None
+        mirror["offer_ice"] = []
+        mirror["answer_ice"] = []
+        mirror["ts"] = 0.0
+
+
+def mirror_start(b):
+    sdp = b.get("sdp")
+    if not sdp or not isinstance(sdp, str):
+        return {"ok": False, "error": "offer eksik"}
+    with mirror_lock:
+        mirror["offer"] = sdp
+        mirror["answer"] = None
+        mirror["offer_ice"] = []
+        mirror["answer_ice"] = []
+        mirror["ts"] = time.time()
+    # Chrome'da alıcı sayfasını tam ekran aç
+    try:
+        tid = open_app("http://127.0.0.1:%d/mirror.html" % PORT, None)
+        activate(tid)
+    except Exception as e:
+        log("mirror alıcı açılamadı:", repr(e))
+        return {"ok": False, "error": "Alıcı sayfası açılamadı"}
+    return {"ok": True}
+
+
+def mirror_signal(b):
+    role = str(b.get("role", ""))   # "answerer" (TV) | "offerer" (telefon)
+    with mirror_lock:
+        if b.get("sdp") and role == "answerer":
+            mirror["answer"] = str(b["sdp"])
+        if isinstance(b.get("ice"), list):
+            key = "answer_ice" if role == "answerer" else "offer_ice"
+            mirror[key].extend([c for c in b["ice"] if isinstance(c, dict)][:50])
+        if role == "answerer":
+            return {"ok": True, "sdp": mirror.get("offer"), "ice": list(mirror["offer_ice"])}
+        if role == "offerer":
+            return {"ok": True, "sdp": mirror.get("answer"), "ice": list(mirror["answer_ice"])}
+    return {"ok": False, "error": "role?"}
 
 
 def remote_power(action):
@@ -1283,6 +1459,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 res = update_install()
             elif method == "POST" and path == "/api/remote/wait":
                 res = ui_wait(b.get("apps"))
+            elif method == "POST" and path == "/api/mirror/signal":
+                res = mirror_signal(b)
+            elif method == "POST" and path == "/api/mirror/stop":
+                mirror_reset()
+                res = {"ok": True}
             else:
                 send_json(self, {"ok": False, "error": "not found"}, 404)
                 return True
@@ -1362,6 +1543,15 @@ class RemoteHandler(http.server.BaseHTTPRequestHandler):
                 res = remote_volume(b.get("level"))
             elif path == "/api/power":
                 res = remote_power(str(b.get("action", "")))
+            elif path == "/api/cursor":
+                res = remote_cursor(b)
+            elif path == "/api/mirror/start":
+                res = mirror_start(b)
+            elif path == "/api/mirror/signal":
+                res = mirror_signal(b)
+            elif path == "/api/mirror/stop":
+                mirror_reset()
+                res = {"ok": True}
             else:
                 send_json(self, {"ok": False, "error": "not found"}, 404)
                 return
@@ -1375,6 +1565,14 @@ def main():
     remote_load()
     try:
         rsrv = http.server.ThreadingHTTPServer(("0.0.0.0", REMOTE_PORT), RemoteHandler)
+        if remote_cert():
+            import ssl
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.load_cert_chain(REMOTE_CERT, REMOTE_KEY)
+            rsrv.socket = ctx.wrap_socket(rsrv.socket, server_side=True)
+            log("kumanda HTTPS açık (self-signed)")
+        else:
+            log("UYARI: kumanda HTTP (sertifika üretilemedi); getDisplayMedia çalışmaz")
         threading.Thread(target=rsrv.serve_forever, daemon=True).start()
     except OSError as e:
         log("kumanda sunucusu açılamadı:", repr(e))

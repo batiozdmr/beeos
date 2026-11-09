@@ -39,7 +39,7 @@ PKGS=(
   firmware-iwlwifi firmware-intel-sound firmware-sof-signed firmware-misc-nonfree
   firmware-nvidia-graphics firmware-realtek intel-microcode
   # beeOS arka ucu
-  python3 python3-websocket curl ca-certificates less nano
+  python3 python3-websocket curl ca-certificates openssl less nano
 )
 
 if [ ! -f /work/rootfs.done ] || [ "${REBUILD:-0}" = 1 ]; then
@@ -67,7 +67,7 @@ CP="cp -r --no-preserve=mode,ownership"
 $CP /src/os/overlay/. "$R/"
 rm -rf "$R/opt/beeos/web"
 mkdir -p "$R/opt/beeos/web"
-$CP /src/index.html /src/appinfo.json /src/css /src/js /src/logos /src/icon.png /src/largeIcon.png "$R/opt/beeos/web/"
+$CP /src/index.html /src/mirror.html /src/appinfo.json /src/css /src/js /src/logos /src/icon.png /src/largeIcon.png "$R/opt/beeos/web/"
 $CP /src/os/backend/beeos_server.py /src/os/backend/remote.html /src/os/backend/osd.js "$R/opt/beeos/bin/"
 chmod -R u=rwX,go=rX "$R/opt/beeos" "$R/etc/systemd" "$R/etc/opt" "$R/home/bee"
 chmod 755 "$R"/opt/beeos/bin/*

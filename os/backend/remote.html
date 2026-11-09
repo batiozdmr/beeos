@@ -136,6 +136,22 @@
   #touch .arrow.flash { animation: flash 0.32s ease-out; }
   @keyframes flash { from { opacity: 0.9; } to { opacity: 0; } }
 
+  /* Fare (touchpad) — gerçek OS cursor'unu uinput ile hareket ettirir */
+  #mouse { position: absolute; inset: 0; border-radius: 34px; overflow: hidden; touch-action: none;
+           background: radial-gradient(circle, rgba(255, 255, 255, 0.05) 1px, transparent 1.5px) 0 0 / 28px 28px,
+                       linear-gradient(180deg, #1a1f2d, #10141d);
+           box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55), inset 0 0 0 1px var(--line); }
+  #mouse .tip { position: absolute; left: 0; right: 0; bottom: 14px; text-align: center; font-size: 12px; color: var(--dim);
+                line-height: 1.6; pointer-events: none; }
+  #mouse .dot { position: absolute; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; pointer-events: none;
+                background: radial-gradient(circle, rgba(255, 200, 61, 0.35), rgba(255, 200, 61, 0) 70%); opacity: 0;
+                transition: opacity 0.18s; }
+  #mouse .dot.on { opacity: 1; }
+
+  .castRow { width: 100%; max-width: 380px; margin-top: 2px; }
+  .castRow .pill { width: 100%; flex-direction: row; gap: 10px; font-size: 14px; color: var(--text); height: 56px; }
+  .castRow .pill.on { background: var(--honey-tint, rgba(255, 200, 61, 0.14)); border-color: rgba(255, 200, 61, 0.35); }
+
   .row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 100%; max-width: 380px; }
   .pill { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; height: 64px;
           border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--line);
@@ -341,6 +357,7 @@
         <div class="seg" role="tablist">
           <button class="on" data-ctl="pad"><svg class="i"><use href="#i-dpad"/></svg>Yön tuşları</button>
           <button data-ctl="touch"><svg class="i"><use href="#i-hand"/></svg>Dokunmatik</button>
+          <button data-ctl="mouse"><svg class="i"><use href="#i-dpad"/></svg>Fare</button>
         </div>
         <div class="ctl">
           <div id="pad">
@@ -355,11 +372,18 @@
             <div class="arrow"><svg class="i"><use href="#i-chev"/></svg></div>
             <div class="tip">Kaydır: yön · Dokun: OK<br>Basılı tut: seçenekler</div>
           </div>
+          <div id="mouse" class="hidden" aria-label="Fare yüzeyi (touchpad)">
+            <div class="dot"></div>
+            <div class="tip">Sürükle: imleci oynat · Dokun: sol tık<br>İki parmak dokun: sağ tık · İki parmak kaydır: tekerlek</div>
+          </div>
         </div>
         <div class="row3">
           <button class="pill" data-key="back"><svg class="i"><use href="#i-back"/></svg>Geri</button>
           <button class="pill" data-key="home"><svg class="i"><use href="#i-hex"/></svg>beeOS</button>
           <button class="pill" data-key="menu"><svg class="i"><use href="#i-dots"/></svg>Seçenekler</button>
+        </div>
+        <div class="castRow">
+          <button class="pill" id="castBtn"><svg class="i"><use href="#i-phone"/></svg><span id="castLabel">Yansıt (telefon ekranı TV'ye)</span></button>
         </div>
         <div class="deck">
           <div class="rocker">
@@ -663,6 +687,7 @@
     all(".seg button").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-ctl") === c); });
     $("pad").classList.toggle("hidden", c !== "pad");
     $("touch").classList.toggle("hidden", c !== "touch");
+    $("mouse").classList.toggle("hidden", c !== "mouse");
   }
   all(".seg button").forEach(function (b) {
     b.addEventListener("click", function () { buzz(6); setCtl(b.getAttribute("data-ctl")); });
@@ -715,6 +740,226 @@
     tp.addEventListener("pointerup", end);
     tp.addEventListener("pointercancel", function () { moved = true; end(); });
     tp.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+  })();
+
+  // ---------- Fare (touchpad): TV'deki gerçek OS cursor'unu uinput ile oynatır ----------
+  (function () {
+    var tp = $("mouse"); if (!tp) { return; }
+    var dot = tp.querySelector(".dot");
+    var SPEED = 2.2;          // telefon piksel delta -> cursor delta çarpanı (hassasiyet)
+    var SCROLL_STEP = 24;     // iki parmak dikey her bu kadar px için 1 tekerlek birimi
+    var pts = {};             // etkin işaretçiler: id -> {x, y, sx, sy}
+    var buf = { dx: 0, dy: 0, wheel: 0 };
+    var startMs = 0, moved = false, buttonDown = false, holdT = null, flushT = null;
+
+    function pos(e) {
+      var r = tp.getBoundingClientRect();
+      dot.style.left = (e.clientX - r.left) + "px";
+      dot.style.top = (e.clientY - r.top) + "px";
+    }
+
+    function schedule() {
+      if (flushT) { return; }
+      flushT = setTimeout(flush, 16);   // ~60Hz
+    }
+    function flush() {
+      flushT = null;
+      if (!buf.dx && !buf.dy && !buf.wheel) { return; }
+      var body = { dx: Math.round(buf.dx), dy: Math.round(buf.dy), wheel: Math.round(buf.wheel) };
+      buf.dx = 0; buf.dy = 0; buf.wheel = 0;
+      // Fare olayları sırası önemli değil, kuyruktan atılabilir
+      send("/api/cursor", body, null, true);
+    }
+    function click(which) { send("/api/cursor", { click: which }, null, true); }
+    function setDown(b) {
+      if (b === buttonDown) { return; }
+      buttonDown = b;
+      send("/api/cursor", b ? { down: "left" } : { up: "left" }, null, true);
+    }
+
+    function nPts() { var n = 0; for (var k in pts) { if (pts.hasOwnProperty(k)) { n++; } } return n; }
+
+    tp.addEventListener("pointerdown", function (e) {
+      e.preventDefault();
+      if (tp.setPointerCapture) { try { tp.setPointerCapture(e.pointerId); } catch (_) {} }
+      pts[e.pointerId] = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY };
+      if (nPts() === 1) {
+        startMs = Date.now();
+        moved = false;
+        pos(e); dot.classList.add("on");
+        clearTimeout(holdT);
+        // uzun bas: sürükleme başlat (fare sol düğme basılı tut)
+        holdT = setTimeout(function () {
+          if (!moved && nPts() === 1) { buzz(25); setDown(true); }
+        }, 450);
+      }
+    });
+
+    tp.addEventListener("pointermove", function (e) {
+      if (!pts[e.pointerId]) { return; }
+      var p = pts[e.pointerId];
+      var dx = e.clientX - p.x, dy = e.clientY - p.y;
+      p.x = e.clientX; p.y = e.clientY;
+      if (!moved && Math.hypot(e.clientX - p.sx, e.clientY - p.sy) > 6) {
+        moved = true; clearTimeout(holdT);
+      }
+      if (nPts() >= 2) {
+        // iki parmak -> dikey tekerlek (her SCROLL_STEP px için 1 tık)
+        buf.wheel -= dy / SCROLL_STEP;
+      } else {
+        pos(e);
+        buf.dx += dx * SPEED;
+        buf.dy += dy * SPEED;
+      }
+      schedule();
+    });
+
+    function end(e) {
+      if (!pts[e.pointerId]) { return; }
+      var wasN = nPts();
+      delete pts[e.pointerId];
+      if (wasN === 1) {
+        clearTimeout(holdT);
+        flush();
+        dot.classList.remove("on");
+        if (buttonDown) { setDown(false); }
+        else if (!moved && Date.now() - startMs < 400) { buzz(10); click("left"); }
+        moved = false;
+      } else if (wasN === 2 && nPts() === 1) {
+        // iki parmak kalkışı: başparmak kalktıysa sağ tık olarak yorumla (iki parmak dokun)
+        if (!moved && Date.now() - startMs < 400) { buzz(12); click("right"); }
+      }
+    }
+    tp.addEventListener("pointerup", end);
+    tp.addEventListener("pointercancel", function (e) { moved = true; end(e); });
+    tp.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+  })();
+
+  // ---------- Ekran yansıtma (WebRTC: telefon ekranı -> TV mirror.html) ----------
+  (function () {
+    var btn = $("castBtn"); if (!btn) { return; }
+    var label = $("castLabel");
+    var pc = null, stream = null, poll = null, offerIce = [], sentIce = 0, state = "idle";
+
+    function setLabel(t) { if (label) { label.textContent = t; } }
+    function setState(s) {
+      state = s;
+      btn.classList.toggle("on", s !== "idle");
+    }
+
+    function post(body, cb) {
+      var x = new XMLHttpRequest();
+      x.open("POST", "/api/mirror/signal", true);
+      x.setRequestHeader("Content-Type", "application/json");
+      x.setRequestHeader("X-BeeOS-PIN", pin);
+      x.timeout = 8000;
+      x.onreadystatechange = function () {
+        if (x.readyState !== 4) { return; }
+        var r = null;
+        try { r = JSON.parse(x.responseText); } catch (e) {}
+        cb(x.status === 200 ? r : null);
+      };
+      x.ontimeout = x.onerror = function () { cb(null); };
+      body.role = "offerer";
+      x.send(JSON.stringify(body));
+    }
+
+    function stop(reason) {
+      clearInterval(poll); poll = null;
+      if (pc) { try { pc.close(); } catch (e) {} pc = null; }
+      if (stream) {
+        try { stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+        stream = null;
+      }
+      // sunucu tarafında temizle
+      var x = new XMLHttpRequest();
+      x.open("POST", "/api/mirror/stop", true);
+      x.setRequestHeader("Content-Type", "application/json");
+      x.setRequestHeader("X-BeeOS-PIN", pin);
+      try { x.send("{}"); } catch (e) {}
+      setLabel("Yansıt (telefon ekranı TV'ye)");
+      setState("idle");
+      if (reason) { toast(reason, true); }
+    }
+
+    function flushIce() {
+      if (!offerIce.length) { return; }
+      var batch = offerIce.splice(0, offerIce.length);
+      post({ ice: batch }, function (r) {
+        if (r && r.ice) {
+          for (var i = 0; i < r.ice.length; i++) {
+            try { pc.addIceCandidate(r.ice[i]); } catch (e) {}
+          }
+        }
+      });
+    }
+
+    function pollAnswer() {
+      post({}, function (r) {
+        if (!r) { return; }
+        if (!pc) { return; }
+        if (r.sdp && pc.signalingState !== "stable") {
+          try { pc.setRemoteDescription(JSON.parse(r.sdp)); } catch (e) {}
+        }
+        if (r.ice && r.ice.length) {
+          for (var i = 0; i < r.ice.length; i++) {
+            try { pc.addIceCandidate(r.ice[i]); } catch (e) {}
+          }
+        }
+      });
+    }
+
+    btn.addEventListener("click", function () {
+      if (state !== "idle") { stop(); return; }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        toast("Bu tarayıcıda ekran paylaşımı yok (iOS Safari desteklemez). Android Chrome dene.", true);
+        return;
+      }
+      if (!pin) { toast("Önce TV'deki PIN'i gir", true); return; }
+      setLabel("Ekran seçiliyor…");
+      setState("prep");
+      navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false }).then(function (s) {
+        stream = s;
+        s.getVideoTracks()[0].onended = function () { stop("Yansıtma bitti"); };
+        pc = new RTCPeerConnection({ iceServers: [] });
+        s.getTracks().forEach(function (t) { pc.addTrack(t, s); });
+        pc.onicecandidate = function (e) {
+          if (e.candidate) { offerIce.push(e.candidate.toJSON()); flushIce(); }
+        };
+        pc.oniceconnectionstatechange = function () {
+          var st = pc.iceConnectionState;
+          if (st === "connected" || st === "completed") {
+            setLabel("Yayında — durdurmak için dokun"); setState("live");
+          } else if (st === "failed" || st === "disconnected" || st === "closed") {
+            if (state !== "idle") { stop("Bağlantı koptu"); }
+          }
+        };
+        return pc.createOffer().then(function (o) { return pc.setLocalDescription(o).then(function () { return o; }); });
+      }).then(function (offer) {
+        setLabel("TV'de alıcı açılıyor…");
+        // Offer'ı gönder → arka uç TV'de mirror.html'yi açar
+        var x = new XMLHttpRequest();
+        x.open("POST", "/api/mirror/start", true);
+        x.setRequestHeader("Content-Type", "application/json");
+        x.setRequestHeader("X-BeeOS-PIN", pin);
+        x.onreadystatechange = function () {
+          if (x.readyState !== 4) { return; }
+          var r = null;
+          try { r = JSON.parse(x.responseText); } catch (e) {}
+          if (x.status !== 200 || !r || r.ok === false) {
+            stop((r && r.error) || "Alıcı açılamadı");
+            return;
+          }
+          setLabel("Bağlantı bekleniyor…");
+          poll = setInterval(pollAnswer, 900);
+          pollAnswer();
+        };
+        x.send(JSON.stringify({ sdp: JSON.stringify(offer) }));
+      }).catch(function (e) {
+        if (e && e.name === "NotAllowedError") { stop("Paylaşım iptal edildi"); }
+        else { stop("Başlatılamadı: " + (e && e.message ? e.message : e)); }
+      });
+    });
   })();
 
   // ---------- sekmeler ----------
@@ -1024,7 +1269,7 @@
   }
 
   // ---------- açılış ----------
-  setCtl(prefs.ctl === "touch" ? "touch" : "pad");
+  setCtl(prefs.ctl === "touch" || prefs.ctl === "mouse" ? prefs.ctl : "pad");
   setLive(prefs.live !== false);
   $("hapticSw").classList.toggle("on", prefs.haptic);
   paintRange();

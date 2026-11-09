@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>beeOS · Ekran Yansıtma</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; padding: 0; background: #000; color: #fff; height: 100%;
+               font-family: system-ui, "Segoe UI", sans-serif; overflow: hidden; }
+  #v { position: absolute; inset: 0; width: 100%; height: 100%; background: #000; object-fit: contain; }
+  #overlay { position: absolute; left: 0; right: 0; bottom: 0; padding: 48px 32px;
+             text-align: center; background: linear-gradient(to top, rgba(0,0,0,0.85), rgba(0,0,0,0));
+             -webkit-transition: opacity 0.4s; transition: opacity 0.4s; }
+  #overlay.hide { opacity: 0; pointer-events: none; }
+  #spin { width: 56px; height: 56px; margin: 0 auto 20px; border-radius: 50%;
+          border: 4px solid rgba(255,255,255,0.15); border-top-color: #ffc83d;
+          animation: s 1s linear infinite; }
+  @keyframes s { to { transform: rotate(360deg); } }
+  #status { font-size: 44px; font-weight: 300; line-height: 1.2; }
+  #hint { margin-top: 14px; opacity: 0.6; font-size: 22px; }
+  .err { color: #ff6b6b; }
+  #spin.off { display: none; }
+</style>
+</head>
+<body>
+<video id="v" autoplay playsinline muted></video>
+<div id="overlay">
+  <div id="spin"></div>
+  <div id="status">Telefon bekleniyor</div>
+  <div id="hint">Telefondaki beeOS kumandasında "Yansıt"a dokun. Geri tuşu ile çık.</div>
+</div>
+<script>
+(function () {
+  var v = document.getElementById("v"), ov = document.getElementById("overlay");
+  var st = document.getElementById("status"), hn = document.getElementById("hint"), sp = document.getElementById("spin");
+  var pc = null, localIce = [], polling = true, gotOffer = false;
+
+  function msg(s, hint, err, nospin) {
+    st.textContent = s;
+    hn.textContent = hint || "";
+    st.className = err ? "err" : "";
+    if (nospin) { sp.classList.add("off"); } else { sp.classList.remove("off"); }
+    ov.classList.remove("hide");
+  }
+  function hide() { ov.classList.add("hide"); }
+
+  function call(body, cb) {
+    var x = new XMLHttpRequest();
+    x.open("POST", "/api/mirror/signal", true);
+    x.setRequestHeader("Content-Type", "application/json");
+    x.setRequestHeader("X-BeeOS", "1");
+    x.timeout = 8000;
+    x.onreadystatechange = function () {
+      if (x.readyState !== 4) { return; }
+      var r = null;
+      try { r = JSON.parse(x.responseText); } catch (e) {}
+      cb(x.status === 200 ? r : null);
+    };
+    x.ontimeout = x.onerror = function () { cb(null); };
+    body.role = "answerer";
+    x.send(JSON.stringify(body));
+  }
+
+  function remoteIce(list) {
+    if (!pc || !list) { return; }
+    for (var i = 0; i < list.length; i++) {
+      try { pc.addIceCandidate(list[i]); } catch (e) {}
+    }
+  }
+
+  function flushIce() {
+    if (!localIce.length) { return; }
+    var batch = localIce.splice(0, localIce.length);
+    call({ ice: batch }, function (r) { if (r) { remoteIce(r.ice); } });
+  }
+
+  function poll() {
+    if (!polling) { return; }
+    call({}, function (r) {
+      if (polling) { setTimeout(poll, gotOffer ? 1500 : 800); }
+      if (!r) { return; }
+      if (!gotOffer && r.sdp) { gotOffer = true; handleOffer(r.sdp); }
+      remoteIce(r.ice);
+    });
+  }
+
+  function handleOffer(sdpStr) {
+    var offer;
+    try { offer = JSON.parse(sdpStr); } catch (e) { msg("Hatalı offer", "", true, true); return; }
+    pc = new RTCPeerConnection({ iceServers: [] });
+    pc.ontrack = function (e) {
+      v.srcObject = e.streams[0];
+      msg("Yayında", "", false, true);
+      setTimeout(hide, 1200);
+    };
+    pc.onicecandidate = function (e) {
+      if (e.candidate) { localIce.push(e.candidate.toJSON()); flushIce(); }
+    };
+    pc.oniceconnectionstatechange = function () {
+      var s = pc.iceConnectionState;
+      if (s === "disconnected" || s === "failed" || s === "closed") {
+        msg("Bağlantı koptu", "Telefondan yeniden başlat.", true, true);
+      }
+    };
+    pc.setRemoteDescription(offer)
+      .then(function () { return pc.createAnswer(); })
+      .then(function (a) { return pc.setLocalDescription(a).then(function () { return a; }); })
+      .then(function (a) { call({ sdp: JSON.stringify(a) }, function () {}); })
+      .catch(function (e) { msg("Bağlanılamadı", String(e), true, true); });
+  }
+
+  function exit() {
+    polling = false;
+    if (pc) { try { pc.close(); } catch (e) {} pc = null; }
+    function p(path) {
+      var x = new XMLHttpRequest();
+      x.open("POST", path, true);
+      x.setRequestHeader("Content-Type", "application/json");
+      x.setRequestHeader("X-BeeOS", "1");
+      try { x.send("{}"); } catch (e) {}
+    }
+    p("/api/mirror/stop");
+    p("/api/home");
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" || e.key === "Backspace") { e.preventDefault(); exit(); }
+  });
+  window.addEventListener("beforeunload", exit);
+
+  poll();
+})();
+</script>
+</body>
+</html>

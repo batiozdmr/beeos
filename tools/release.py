@@ -31,7 +31,7 @@ APPINFO = os.path.join(ROOT, "appinfo.json")
 OUT = os.path.join(ROOT, "build", "release")
 REPO = "batiozdmr/beeos"
 # os/build.sh de aynı dosyaları kopyalar
-WEB = ["index.html", "appinfo.json", "css", "js", "logos", "icon.png", "largeIcon.png"]
+WEB = ["index.html", "mirror.html", "appinfo.json", "css", "js", "logos", "icon.png", "largeIcon.png"]
 BACKEND = ["beeos_server.py", "remote.html", "osd.js"]
 NOT_EXEC = {"remote.html", "osd.js"}
 # overlay'den pakete girmeyenler: bin ayrı gelir, ev klasörü kullanıcınındır

@@ -16,6 +16,7 @@ function svgIcon(inner) {
 
 var ICONS = {
   play: svgIcon('<circle cx="12" cy="12" r="9.5"/><path d="M10 8.2l6 3.8-6 3.8z" fill="#fff"/>'),
+  gamepad: svgIcon('<path d="M7 9h10a4 4 0 014 4v2a4 4 0 01-7 2h-4a4 4 0 01-7-2v-2a4 4 0 014-4z"/><path d="M8 12v3M6.5 13.5h3M15 13h.01M17 15h.01"/>'),
   music: svgIcon('<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>'),
   globe: svgIcon('<circle cx="12" cy="12" r="9.5"/><path d="M2.5 12h19M12 2.5c3 3 3 16.5 0 19M12 2.5c-3 3-3 16.5 0 19"/>'),
   tv: svgIcon('<rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>'),
@@ -47,7 +48,8 @@ var CONFIG = {
         { name: "Disney+",     cat: "Uygulama", sub: "Dizi & Film", icon: "play",  id: "com.disney.disneyplus-prod", web: "https://www.disneyplus.com", search: "https://www.disneyplus.com/search?q={q}", colors: ["#2a54e0", "#0a1650"], desc: "Disney, Marvel, Star Wars ve daha fazlası." },
         { name: "Spotify",     cat: "Uygulama", sub: "Müzik",       icon: "music", id: "spotify-beehive", web: "https://open.spotify.com", search: "https://open.spotify.com/search/{q}", colors: ["#1fc45c", "#0a4a22"], desc: "Çalma listeleri, podcast'ler ve sevdiğin sanatçılar." },
         { name: "TV",          cat: "Canlı TV", sub: "Kanallar",    icon: "tv",    id: "@tv", colors: ["#f5a524", "#5a3405"], desc: "Antensiz, internetten canlı TV kanalları. Yukarı/aşağı ile kanal değiştir, OK ile kanal listesi." },
-        { name: "Tarayıcı",    cat: "Uygulama", sub: "İnternet",    icon: "globe", id: "com.webos.app.browser", web: "https://www.google.com", search: "https://www.google.com/search?q={q}", tvParam: "target", colors: ["#8b4cf0", "#2a1066"], desc: "İnternette gez, haberleri oku, siteleri aç." }
+        { name: "Tarayıcı",    cat: "Uygulama", sub: "İnternet",    icon: "globe", id: "com.webos.app.browser", web: "https://www.google.com", search: "https://www.google.com/search?q={q}", tvParam: "target", colors: ["#8b4cf0", "#2a1066"], desc: "İnternette gez, haberleri oku, siteleri aç." },
+        { name: "GeForce Now", cat: "Oyun",     sub: "Bulut oyun",  icon: "gamepad", id: "beeos.geforcenow", web: "https://play.geforcenow.com/", only: "pc", colors: ["#76b900", "#1f3100"], desc: "Nvidia GeForce Now bulut oyun: AAA oyunları tarayıcıdan oyna. Oyun kolu veya klavye ister; Nvidia hesabı gerekir." }
       ]
     },
     {
