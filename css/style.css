@@ -555,6 +555,17 @@ html, body {
 .prow.big { height: 84px; }
 .prow.big .plabel { top: 27px; }
 .prow.big .pval { top: 18px; font-size: 40px; font-weight: 600; letter-spacing: 2px; color: #ffc83d; opacity: 1; }
+.pextra { position: absolute; right: 24px; top: 20px; }
+.pextra .pqr { display: block; width: 180px; height: 180px; border-radius: 10px; background: #fff; padding: 6px; box-sizing: border-box; }
+.prow:has(.pqr) { height: 220px; }
+.prow:has(.pqr) .plabel { top: 26px; }
+.prow:has(.pqr) .pval {
+  top: 60px; right: 240px; left: auto;
+  font-size: 18px; opacity: 0.7; letter-spacing: 0; font-weight: 400; color: inherit;
+  max-width: calc(100% - 280px);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-align: right;
+}
 #panelFoot { position: absolute; left: 64px; right: 64px; bottom: 44px; font-size: 18px; opacity: 0.4; }
 /* Görünümün başındaki açıklama kutusu (TV bağlantısı: onay, kapağı kapatabilirsin) */
 .pnote {
@@ -996,6 +1007,13 @@ html, body {
   transition: opacity 180ms ease-out, transform 220ms cubic-bezier(0.25, 0.8, 0.3, 1);
 }
 .osk-open #osk { opacity: 1; pointer-events: auto; -webkit-transform: none; transform: none; }
+#oskSuggest { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; min-height: 42px; }
+.osuggest { padding: 8px 14px; border-radius: 10px; background: rgba(255,255,255,0.08); font-size: 18px; cursor: pointer; }
+.osuggest:hover { background: rgba(255,200,61,0.18); }
+
+/* Alt yazı stilleri — Ayarlar > Erişilebilirlik ile ayarlanır */
+:root { --sub-size: 28px; --sub-bg: transparent; --sub-shadow: 0 2px 6px rgba(0,0,0,0.9),0 0 2px rgba(0,0,0,0.9); }
+video::cue { font-size: var(--sub-size); background: var(--sub-bg); color: #fff; text-shadow: var(--sub-shadow); }
 #oskTitle { padding: 0 8px 12px; font-size: 21px; font-weight: 600; letter-spacing: 4px; text-transform: uppercase; opacity: 0.5; }
 #oskField {
   height: 76px;

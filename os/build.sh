@@ -18,6 +18,13 @@ log() { echo -e "\n\033[1;33m== $*\033[0m"; }
 
 log "Derleme araçları"
 export DEBIAN_FRONTEND=noninteractive
+# BuildKit mount edilen /work/apt-cache ile apt indirmelerini kalıcı yap. Tekrar build ~3x hızlanır.
+if [ -d /work/apt-cache ]; then
+  mkdir -p /work/apt-cache/archives/partial /work/apt-lists
+  rm -rf /var/cache/apt/archives /var/lib/apt/lists
+  ln -s /work/apt-cache/archives /var/cache/apt/archives
+  ln -s /work/apt-lists /var/lib/apt/lists
+fi
 apt-get update -qq
 apt-get install -y -qq mmdebstrap dosfstools mtools e2fsprogs fdisk curl ca-certificates >/dev/null
 

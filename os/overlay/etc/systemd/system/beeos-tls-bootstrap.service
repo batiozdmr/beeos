@@ -1,0 +1,17 @@
+[Unit]
+Description=beeOS: telefon kumandası için self-signed TLS sertifikası oluştur
+ConditionPathExists=!/var/lib/beeos/remote.crt
+Before=beeos-backend.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/install -d -m 0700 -o bee -g bee /var/lib/beeos
+ExecStart=/usr/bin/openssl req -x509 -newkey ed25519 -nodes \
+  -keyout /var/lib/beeos/remote.key -out /var/lib/beeos/remote.crt \
+  -days 3650 -subj "/CN=beeos.local"
+ExecStart=/bin/chown bee:bee /var/lib/beeos/remote.key /var/lib/beeos/remote.crt
+ExecStart=/bin/chmod 600 /var/lib/beeos/remote.key
+ExecStart=/bin/chmod 644 /var/lib/beeos/remote.crt
+
+[Install]
+WantedBy=multi-user.target

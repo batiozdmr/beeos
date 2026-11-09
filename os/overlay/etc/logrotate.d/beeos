@@ -1,0 +1,25 @@
+# beeOS log rotasyonu. BEEOS-LOG bölümü 64 MB; haftada bir döndür, 4 arşiv tut, sıkıştır.
+/var/log/beeos/*.log {
+    weekly
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 bee bee
+    sharedscripts
+    postrotate
+        systemctl kill -s HUP beeos-backend.service 2>/dev/null || true
+    endscript
+}
+
+/media/BEEOS-LOG/*.log {
+    weekly
+    rotate 2
+    compress
+    delaycompress
+    missingok
+    notifempty
+    maxsize 4M
+    copytruncate
+}

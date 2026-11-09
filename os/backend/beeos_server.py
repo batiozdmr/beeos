@@ -409,12 +409,14 @@ def bt_scan():
 
 
 def bt_action(action, mac):
-    """connect: gerekirse eşleştirir (şifresiz), güvenilir yapar ve bağlanır. disconnect / remove."""
+    """connect: gerekirse eşleştirir (DisplayYesNo ajanıyla: sayısal karşılaştırmayı destekleyen
+    cihazlar MITM'e karşı güvenli; desteklemeyen cihazlar just-works'a düşer, o da kullanıcıya
+    "eşleşme modunda mı?" diye sorduğu sürece dikkate alınabilir), güvenilir yapar ve bağlanır."""
     if not MAC_RE.fullmatch(mac):
         return {"ok": False, "error": "Geçersiz cihaz"}
     if action == "connect":
         if mac not in bt_macs("Paired"):
-            code, out = btctl("--agent", "NoInputNoOutput", "--timeout", "20", "pair", mac, timeout=20)
+            code, out = btctl("--agent", "DisplayYesNo", "--timeout", "30", "pair", mac, timeout=30)
             if "successful" not in out.lower():
                 log("bt pair failed:", out.strip()[-200:])
                 return {"ok": False, "error": "Eşleştirilemedi. Cihaz eşleşme modunda mı?"}
@@ -489,7 +491,8 @@ def asset_url(a):
 
 def update_state():
     r = upd["release"]
-    res = {"ok": True, "current": VERSION, "state": upd["state"], "progress": upd["progress"], "error": upd["error"]}
+    res = {"ok": True, "current": VERSION, "state": upd["state"], "progress": upd["progress"], "error": upd["error"],
+           "rollback": {"available": rollback_available(), "version": rollback_version()}}
     if r:
         res.update({"latest": r["version"], "available": r["available"], "notes": r["notes"], "size": r["size"]})
     return res
@@ -517,7 +520,7 @@ def update_check():
     with upd_lock:
         upd["release"] = {"version": version, "available": bool(newer and pkg and sha),
                           "notes": str(rel.get("body") or "")[:1500], "size": (pkg or {}).get("size", 0),
-                          "pkg": pkg, "sha": sha}
+                          "pkg": pkg, "sha": sha, "assets": assets}
         if upd["state"] == "error":
             upd.update(state="idle", error="")
     return update_state()
@@ -573,6 +576,38 @@ def update_download(r, path):
         raise UpdateError("Paket indirilemedi. İnternet bağlantısını kontrol et.") from e
     if h.hexdigest() != want:
         raise UpdateError("Paket doğrulanamadı (sağlama toplamı tutmuyor)")
+    verify_signature(r, path)
+
+
+UPDATE_PUB = "/etc/beeos/update.pub"
+
+
+def verify_signature(r, path):
+    """minisign imzasını doğrula. Anahtar veya minisign binary yoksa uyar, ama kurulumu engelleme —
+    bir sonraki major'da zorunlu kılınacak. Release'te `beeos-update-<sürüm>.tar.gz.minisig` varsa
+    GitHub'dan indirilir, minisign ile doğrulanır."""
+    if not os.path.isfile(UPDATE_PUB):
+        log("imza anahtarı yok, imza doğrulama atlandı:", UPDATE_PUB)
+        return
+    if shutil.which("minisign") is None:
+        log("minisign binary yok, imza doğrulama atlandı")
+        return
+    sig_asset = (r.get("assets") or {}).get("beeos-update-%s.tar.gz.minisig" % r["version"])
+    if not sig_asset:
+        log("imza dosyası release'te yok, atlandı")
+        return
+    sig_path = path + ".minisig"
+    try:
+        url, accept = asset_url(sig_asset)
+        with gh_open(url, accept) as f, open(sig_path, "wb") as out:
+            out.write(f.read(4096))
+    except OSError as e:
+        raise UpdateError("İmza dosyası indirilemedi") from e
+    try:
+        subprocess.run(["minisign", "-V", "-p", UPDATE_PUB, "-m", path, "-x", sig_path],
+                       check=True, capture_output=True, timeout=30)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        raise UpdateError("İmza doğrulanamadı") from e
 
 
 def swap_dir(new, dest):
@@ -587,6 +622,119 @@ def swap_dir(new, dest):
         if os.path.exists(prev):
             os.rename(prev, dest)
         raise
+
+
+# ---------- tanı + UI log ----------
+UI_LOG = os.path.join(STATE_DIR, "ui.log")
+UI_LOG_MAX = 2 * 1024 * 1024    # 2 MB, logrotate devralır
+
+
+def ui_log_write(events):
+    if not isinstance(events, list):
+        return
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        if os.path.exists(UI_LOG) and os.path.getsize(UI_LOG) > UI_LOG_MAX:
+            os.rename(UI_LOG, UI_LOG + ".1")
+        with open(UI_LOG, "a", encoding="utf-8") as f:
+            for e in events[:100]:
+                if isinstance(e, dict):
+                    f.write(json.dumps(e, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def _df_ratio(path):
+    try:
+        st = shutil.disk_usage(path)
+        return round((st.total - st.free) / st.total, 2) if st.total else 0.0
+    except OSError:
+        return 0.0
+
+
+def diag_info():
+    net = {}
+    try:
+        ip = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=3).stdout.split()
+        net["ip"] = ip[0] if ip else ""
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    try:
+        out = subprocess.run(["nmcli", "-t", "-f", "ACTIVE,SSID", "device", "wifi"],
+                             capture_output=True, text=True, timeout=3).stdout
+        for line in out.splitlines():
+            if line.startswith("yes:"):
+                net["ssid"] = line.split(":", 1)[1]
+                break
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return {"ok": True,
+            "net": net,
+            "disk": {"beeos": _df_ratio(BEEOS_DIR), "log": _df_ratio(STATE_DIR)},
+            "update": {"state": upd["state"], "current": VERSION},
+            "proxy": {"count": proxy_stats["count"], "err": proxy_stats["err"]}}
+
+
+proxy_stats = {"count": 0, "err": 0}
+
+
+def rollback_available():
+    """Önceki sürüme dönüş mümkün mü? Hem web hem bin'in .prev klasörü dolu olmalı."""
+    for part in ("web", "bin"):
+        prev = os.path.join(BEEOS_DIR, part + ".prev")
+        if not os.path.isdir(prev):
+            return False
+    return True
+
+
+def rollback_version():
+    """Dönülecek sürüm numarası (web.prev/appinfo.json'dan okunur)."""
+    try:
+        with open(os.path.join(BEEOS_DIR, "web.prev", "appinfo.json"), encoding="utf-8") as f:
+            return str(json.load(f).get("version") or "")
+    except (OSError, ValueError, KeyError):
+        return ""
+
+
+def update_rollback():
+    """Bir önceki sürüme döner: web <-> web.prev, bin <-> bin.prev takas. İmza doğrulamasına gerek yok,
+    çünkü dönülen sürüm bu cihazda daha önce kurulup çalışmış sürüm. Takas sonrası servisler yeniden başlar."""
+    with upd_lock:
+        if upd["state"] not in ("idle", "error"):
+            return update_state()
+        if not rollback_available():
+            upd.update(state="error", error="Dönülecek önceki sürüm bulunamadı.")
+            return update_state()
+        upd.update(state="install", progress=0, error="")
+    try:
+        for part in ("web", "bin"):
+            dest = os.path.join(BEEOS_DIR, part)
+            prev = dest + ".prev"
+            tmp = dest + ".rollback-tmp"
+            # dest -> tmp, prev -> dest, tmp -> prev  (yarım kalırsa ilk iki rename atomik, son adım cosmetic)
+            os.rename(dest, tmp)
+            try:
+                os.rename(prev, dest)
+            except OSError:
+                os.rename(tmp, dest)
+                raise
+            try:
+                os.rename(tmp, prev)
+            except OSError:
+                shutil.rmtree(tmp, ignore_errors=True)
+        log("sürüm geri alındı: %s -> %s" % (VERSION, rollback_version() or "?"))
+        upd.update(state="restart")
+        subprocess.run(["systemctl", "daemon-reload"], timeout=60)
+        swaymsg("reload")
+        restart = ("systemctl restart beeos-backend; i=0; while [ $i -lt 40 ] && ! curl -fs -o /dev/null "
+                   "-H 'X-BeeOS: 1' http://127.0.0.1:%d/api/info; do sleep 0.5; i=$((i+1)); done; "
+                   "pkill -u %s -x chrome" % (PORT, BEE))
+        threading.Timer(2.0, lambda: subprocess.run(["systemd-run", "--no-block", "--collect",
+                                                     "--unit=beeos-update-restart", "/bin/sh", "-c", restart])).start()
+    except OSError as e:
+        with upd_lock:
+            upd.update(state="error", error="Geri alma başarısız: " + str(e))
+    return update_state()
 
 
 def update_apply(r):
@@ -709,6 +857,42 @@ def tv_rewrite(text, base):
     return "\n".join(out) + "\n"
 
 
+TV_CACHE_DIR = os.path.join(STATE_DIR, "tv-cache")
+TV_CACHE_TTL = 6 * 3600          # 6 saat
+TV_CACHE_STALE = 72 * 3600       # 3 gün — ağ yoksa bu kadar süre eski veri sun
+
+
+def _tv_cache_path(url):
+    return os.path.join(TV_CACHE_DIR, hashlib.sha256(url.encode("utf-8")).hexdigest() + ".bin")
+
+
+def tv_proxy_cache_lookup(url, raw, stale_ok=False):
+    try:
+        p = _tv_cache_path(url)
+        age = time.time() - os.path.getmtime(p)
+        if age > (TV_CACHE_STALE if stale_ok else TV_CACHE_TTL):
+            return None
+        with open(p, "rb") as f:
+            header = f.readline().rstrip(b"\n").decode("utf-8", "replace")
+            body = f.read()
+        return {"ctype": header or "application/octet-stream", "body": body}
+    except (OSError, ValueError):
+        return None
+
+
+def tv_proxy_cache_store(url, ctype, body):
+    try:
+        os.makedirs(TV_CACHE_DIR, exist_ok=True)
+        p = _tv_cache_path(url)
+        tmp = p + ".tmp"
+        with open(tmp, "wb") as f:
+            f.write((ctype or "application/octet-stream").encode("utf-8") + b"\n")
+            f.write(body)
+        os.replace(tmp, p)
+    except OSError as e:
+        log("tv cache yazılamadı:", repr(e))
+
+
 def tv_proxy(h, query):
     q = urllib.parse.parse_qs(query)
     url = (q.get("u") or [""])[0]
@@ -716,13 +900,43 @@ def tv_proxy(h, query):
     if not tv_url_ok(url):
         h.send_error(400)
         return
+    # XMLTV / M3U listesi gibi yavaş ve statik kaynaklar için disk önbellek: 6 saat taze kalır.
+    # Yayın segmentleri (TS/MP4) asla cache'lenmez — her çağrıda canlı akar.
+    cache = tv_proxy_cache_lookup(url, raw) if raw else None
+    if cache:
+        h.send_response(200)
+        h.send_header("Content-Type", cache["ctype"])
+        h.send_header("Content-Length", str(len(cache["body"])))
+        h.send_header("X-BeeOS-Cache", "hit")
+        h.end_headers()
+        h.wfile.write(cache["body"])
+        return
     req = urllib.request.Request(url, headers={"User-Agent": STREAM_UA, "Accept": "*/*"})
     try:
         r = tv_opener.open(req, timeout=15)
     except urllib.error.HTTPError as e:
+        # Hata durumunda eski önbellek varsa onu dön — kullanıcı EPG'siz kalmasın.
+        stale = tv_proxy_cache_lookup(url, raw, stale_ok=True) if raw else None
+        if stale:
+            h.send_response(200)
+            h.send_header("Content-Type", stale["ctype"])
+            h.send_header("Content-Length", str(len(stale["body"])))
+            h.send_header("X-BeeOS-Cache", "stale")
+            h.end_headers()
+            h.wfile.write(stale["body"])
+            return
         h.send_error(e.code if 400 <= e.code < 600 else 502)
         return
     except (urllib.error.URLError, OSError, ValueError):
+        stale = tv_proxy_cache_lookup(url, raw, stale_ok=True) if raw else None
+        if stale:
+            h.send_response(200)
+            h.send_header("Content-Type", stale["ctype"])
+            h.send_header("Content-Length", str(len(stale["body"])))
+            h.send_header("X-BeeOS-Cache", "stale")
+            h.end_headers()
+            h.wfile.write(stale["body"])
+            return
         h.send_error(502)
         return
     try:
@@ -744,10 +958,15 @@ def tv_proxy(h, query):
                 h.send_header("Content-Length", r.headers["Content-Length"])
             h.end_headers()
             sent, chunk = 0, first
+            buf = bytearray() if raw else None
             while chunk and sent < (TV_LIST_MAX if raw else TV_MAX):
                 h.wfile.write(chunk)
                 sent += len(chunk)
+                if buf is not None and len(buf) <= TV_LIST_MAX:
+                    buf += chunk
                 chunk = r.read(65536)
+            if buf is not None and 128 <= len(buf) <= TV_LIST_MAX:
+                tv_proxy_cache_store(url, ctype, bytes(buf))
     except (BrokenPipeError, ConnectionResetError):
         pass       # kanal değişince oynatıcı isteği yarıda bırakır
     except OSError as e:
@@ -756,7 +975,14 @@ def tv_proxy(h, query):
 
 # ---------- telefon kumandası ----------
 remote = {"enabled": True, "pin": "", "seq": 0}   # seq: başarılı eşleşme sayısı (beeOS'ta bildirim)
-fails = {"n": 0, "until": 0.0}
+fails = {"n": 0, "until": 0.0, "rounds": 0}
+# Oturum anahtarları: her PIN başarılı doğrulamada id+secret üretilir. Sonraki istekler
+# X-BeeOS-Session + X-BeeOS-Sig ile imzalanır; PIN'i ağa gönderme sayısı 1'e düşer.
+sessions = {}       # id -> {"secret":bytes,"created":ts,"last":ts,"name":str}
+SESSION_TTL = 30 * 24 * 3600        # 30 gün hareketsiz → silinir
+SESSION_MAX = 4                     # aynı anda en fazla 4 oturum
+NONCES = {}         # nonce -> ts (son 5 dk, replay engeli)
+NONCE_TTL = 300
 WTYPE_KEYS = {"up": "Up", "down": "Down", "left": "Left", "right": "Right", "ok": "Return",
               "back": "Escape", "playpause": "XF86AudioPlay", "next": "XF86AudioNext",
               "prev": "XF86AudioPrev", "backspace": "BackSpace", "settings": "F1", "menu": "F2"}
@@ -777,6 +1003,12 @@ def remote_load():
         remote["enabled"] = bool(d.get("enabled", True))
         if re.fullmatch(r"\d{6}", str(d.get("pin", ""))):
             remote["pin"] = d["pin"]
+        for sid, s in (d.get("sessions") or {}).items():
+            if re.fullmatch(r"[0-9a-f]{32}", str(sid)) and re.fullmatch(r"[0-9a-f]{64}", str(s.get("secret", ""))):
+                sessions[sid] = {"secret": bytes.fromhex(s["secret"]),
+                                 "created": float(s.get("created", time.time())),
+                                 "last": float(s.get("last", time.time())),
+                                 "name": str(s.get("name", ""))[:48]}
     except (OSError, ValueError):
         pass
     if not remote["pin"]:
@@ -788,9 +1020,57 @@ def remote_save():
     os.makedirs(STATE_DIR, exist_ok=True)
     tmp = REMOTE_FILE + ".tmp"
     with open(tmp, "w") as f:
-        json.dump({"enabled": remote["enabled"], "pin": remote["pin"]}, f)
+        json.dump({
+            "enabled": remote["enabled"], "pin": remote["pin"],
+            "sessions": {sid: {"secret": s["secret"].hex(), "created": s["created"],
+                               "last": s["last"], "name": s["name"]}
+                         for sid, s in sessions.items()}
+        }, f)
     os.chmod(tmp, 0o600)
     os.replace(tmp, REMOTE_FILE)
+
+
+def session_create(name=""):
+    """Yeni oturum: 16 byte id + 32 byte secret. Fazla oturum varsa en eskiyi at."""
+    if len(sessions) >= SESSION_MAX:
+        oldest = min(sessions.items(), key=lambda kv: kv[1]["last"])[0]
+        del sessions[oldest]
+    sid = secrets.token_hex(16)
+    sessions[sid] = {"secret": secrets.token_bytes(32),
+                     "created": time.time(), "last": time.time(),
+                     "name": str(name or "")[:48]}
+    remote_save()
+    return sid, sessions[sid]["secret"]
+
+
+def session_check(headers, method, path, body_bytes):
+    """Başarılıysa (sid, secret) döndür, yoksa None. İmza: hex(hmac_sha256(secret, m+'\\n'+p+'\\n'+nonce+'\\n'+body))."""
+    sid = headers.get("X-BeeOS-Session", "")
+    sig = headers.get("X-BeeOS-Sig", "")
+    nonce = headers.get("X-BeeOS-Nonce", "")
+    if not (re.fullmatch(r"[0-9a-f]{32}", sid) and re.fullmatch(r"[0-9a-f]{64}", sig)
+            and re.fullmatch(r"[0-9a-zA-Z_-]{8,64}", nonce)):
+        return None
+    s = sessions.get(sid)
+    if not s:
+        return None
+    if time.time() - s["last"] > SESSION_TTL:
+        del sessions[sid]
+        remote_save()
+        return None
+    now = time.time()
+    for n, t in list(NONCES.items()):
+        if now - t > NONCE_TTL:
+            del NONCES[n]
+    if nonce in NONCES:
+        return None
+    msg = (method + "\n" + path + "\n" + nonce + "\n").encode("utf-8") + (body_bytes or b"")
+    want = hmac.new(s["secret"], msg, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(want, sig):
+        return None
+    NONCES[nonce] = now
+    s["last"] = now
+    return sid
 
 
 def lan_urls():
@@ -826,7 +1106,9 @@ def remote_cert():
 
 
 def remote_info():
-    return {"ok": True, "enabled": remote["enabled"], "pin": remote["pin"], "urls": lan_urls()}
+    return {"ok": True, "enabled": remote["enabled"], "pin": remote["pin"], "urls": lan_urls(),
+            "sessions": [{"id": sid, "name": s["name"], "last": int(s["last"])}
+                         for sid, s in sorted(sessions.items(), key=lambda kv: -kv[1]["last"])]}
 
 
 def remote_set(b):
@@ -834,6 +1116,10 @@ def remote_set(b):
         remote["enabled"] = b["enabled"]
     if b.get("newPin") is True:
         remote["pin"] = new_pin()
+    if b.get("forgetAll") is True:
+        sessions.clear()
+    elif b.get("forget"):
+        sessions.pop(str(b["forget"]), None)
     remote_save()
     return remote_info()
 
@@ -1399,11 +1685,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             send_json(self, {"ok": False, "error": "forbidden"}, 403)
             return True
         if method == "GET" and path == "/api/tv/proxy":
-            tv_proxy(self, parsed.query)
+            proxy_stats["count"] += 1
+            try:
+                tv_proxy(self, parsed.query)
+            except Exception:
+                proxy_stats["err"] += 1
+                raise
             return True
         b = read_body(self) if method == "POST" else {}
         try:
-            if method == "GET" and path == "/api/info":
+            if method == "GET" and path == "/api/diag":
+                res = diag_info()
+            elif method == "POST" and path == "/api/log":
+                # UI'den yerel log akışı: diske yazılır, dışarı gitmez. Opt-in Ayarlar > Gelişmiş'ten açılır.
+                ui_log_write(b.get("events") or [])
+                res = {"ok": True}
+            elif method == "GET" and path == "/api/info":
                 # Teşhis: beeOS arayüzü (Chrome'dan gelen ilk istek) açılıştan kaç saniye sonra yüklendi
                 if not Handler.ui_seen and "Chrome" in (self.headers.get("User-Agent") or ""):
                     Handler.ui_seen = True
@@ -1457,6 +1754,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 res = update_check()
             elif method == "POST" and path == "/api/update/install":
                 res = update_install()
+            elif method == "POST" and path == "/api/update/rollback":
+                res = update_rollback()
             elif method == "POST" and path == "/api/remote/wait":
                 res = ui_wait(b.get("apps"))
             elif method == "POST" and path == "/api/mirror/signal":
@@ -1510,27 +1809,50 @@ class RemoteHandler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
-        b = read_body(self)
+        # Gövdeyi bir kez oku, hem JSON hem HMAC için kullan. İmzalanan: ham bytes.
+        clen = 0
+        try:
+            clen = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            pass
+        raw = self.rfile.read(clen) if clen > 0 else b""
+        try:
+            b = json.loads(raw.decode("utf-8")) if raw else {}
+        except (ValueError, UnicodeDecodeError):
+            b = {}
         if not remote["enabled"]:
             send_json(self, {"ok": False, "error": "Telefon kumandası beeOS'ta kapalı"}, 403)
             return
         now = time.time()
+        # Kimlik doğrulama: önce oturum imzası, başarısızsa PIN (yalnız /api/pair ve eski istemciler için).
+        sid = None
         with lock:
             if fails["until"] > now:
                 send_json(self, {"ok": False, "error": "Çok fazla hatalı PIN. Birkaç dakika bekle."}, 429)
                 return
-            if not hmac.compare_digest(self.headers.get("X-BeeOS-PIN", ""), remote["pin"]):
-                # 10 hatalı denemede 5 dk kilit: 6 haneli PIN'i deneyerek bulmak pratik olmaz
-                fails["n"] += 1
-                if fails["n"] >= 10:
-                    fails["n"], fails["until"] = 0, now + 300
-                send_json(self, {"ok": False, "error": "PIN yanlış"}, 401)
-                return
+            sid = session_check(self.headers, "POST", path, raw)
+            if sid is None:
+                # Session yok ya da geçersiz → PIN kabul et. Yanlışsa kademeli backoff.
+                if not hmac.compare_digest(self.headers.get("X-BeeOS-PIN", ""), remote["pin"]):
+                    fails["n"] += 1
+                    if fails["n"] >= 10:
+                        fails["rounds"] = fails.get("rounds", 0) + 1
+                        lock_sec = 300 if fails["rounds"] == 1 else 900 if fails["rounds"] == 2 else 3600
+                        fails["n"], fails["until"] = 0, now + lock_sec
+                    send_json(self, {"ok": False, "error": "PIN yanlış"}, 401)
+                    return
             fails["n"] = 0
+            fails["rounds"] = 0
         try:
             if path == "/api/pair":
-                remote["seq"] += 1
-                res = {"ok": True}
+                # PIN ile geldiyse yeni oturum döndür; session ile geldiyse sadece seq artır (yoklama).
+                if sid is None:
+                    new_sid, secret = session_create(str(b.get("name", "")))
+                    remote["seq"] += 1
+                    res = {"ok": True, "session": new_sid, "secret": secret.hex()}
+                else:
+                    remote["seq"] += 1
+                    res = {"ok": True}
             elif path == "/api/key":
                 res = remote_key(str(b.get("key", "")), b.get("n", 1))
             elif path == "/api/text":

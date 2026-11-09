@@ -230,6 +230,138 @@ test("getNowNext: when nothing is loaded returns null", function () {
   assert.strictEqual(EPG.getNowNext("A.tr", Date.now()), null);
 });
 
+// ---------- quota.js ----------
+section("quota.js");
+
+function loadModule(file, extraSandbox) {
+  var src = fs.readFileSync(path.join(__dirname, "..", "js", file), "utf8");
+  var storage = (extraSandbox && extraSandbox.storage) || {};
+  var sandbox = Object.assign({
+    localStorage: {
+      length: 0,
+      key: function (i) { return Object.keys(storage)[i] || null; },
+      getItem: function (k) { return Object.prototype.hasOwnProperty.call(storage, k) ? storage[k] : null; },
+      setItem: function (k, v) { storage[k] = String(v); this.length = Object.keys(storage).length; },
+      removeItem: function (k) { delete storage[k]; this.length = Object.keys(storage).length; }
+    },
+    window: { addEventListener: function () {} },
+    document: { createElement: function () { return { setAttribute: function () {}, style: {}, textContent: "" }; },
+                body: { appendChild: function () {} }, addEventListener: function () {} },
+    console: console,
+    setTimeout: setTimeout
+  }, extraSandbox || {});
+  sandbox.localStorage.length = Object.keys(storage).length;
+  vm.createContext(sandbox);
+  vm.runInContext(src, sandbox);
+  sandbox.storage = storage;
+  return sandbox;
+}
+
+test("makeRoom trims oldest recent when quota is tight", function () {
+  var storage = {};
+  var long = [];
+  for (var i = 0; i < 50; i++) { long.push({ id: "app" + i, t: i }); }
+  storage["beeos:recent"] = JSON.stringify(long);
+  var m = loadModule("quota.js", { storage: storage });
+  var ok = m.QuotaGuard.makeRoom("recent");
+  assert.strictEqual(ok, true);
+  var left = JSON.parse(storage["beeos:recent"]);
+  assert.ok(left.length < 50, "recent trimmed");
+});
+
+test("makeRoom returns false when nothing to trim", function () {
+  var m = loadModule("quota.js", { storage: {} });
+  assert.strictEqual(m.QuotaGuard.makeRoom("recent"), false);
+});
+
+test("report sums key+value bytes", function () {
+  var storage = { "beeos:foo": "bar" };
+  var m = loadModule("quota.js", { storage: storage });
+  var r = m.QuotaGuard.report();
+  assert.strictEqual(r.bytes, "beeos:foo".length + "bar".length);
+});
+
+// ---------- search_suggest.js ----------
+section("search_suggest.js");
+
+test("record + suggest returns prefix matches, freq-weighted", function () {
+  var m = loadModule("search_suggest.js", { storage: {} });
+  m.SearchSuggest.record("netflix");
+  m.SearchSuggest.record("netflix");
+  m.SearchSuggest.record("youtube");
+  m.SearchSuggest.record("netflix diaries");
+  var hits = m.SearchSuggest.suggest("net", 5);
+  assert.ok(hits.indexOf("netflix") === 0, "netflix first (freq=2)");
+  assert.ok(hits.indexOf("netflix diaries") >= 0);
+  assert.strictEqual(hits.indexOf("youtube"), -1);
+});
+
+test("suggest with empty prefix returns recent history", function () {
+  var m = loadModule("search_suggest.js", { storage: {} });
+  m.SearchSuggest.record("a");
+  m.SearchSuggest.record("b");
+  var hits = m.SearchSuggest.suggest("", 5);
+  assert.ok(hits.length === 2);
+});
+
+test("prefix match is case + locale insensitive (Turkish İ)", function () {
+  var m = loadModule("search_suggest.js", { storage: {} });
+  m.SearchSuggest.record("İstanbul");
+  var hits = m.SearchSuggest.suggest("ist", 5);
+  // hits sandbox'tan geldiği için JSON-roundtrip ile yerel diziye çevir (loadStore'daki wrap mantığı).
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(hits)), ["İstanbul"]);
+});
+
+// ---------- wifi_errors.js ----------
+section("wifi_errors.js");
+
+test("recognizes wrong-password stderr", function () {
+  var m = loadModule("wifi_errors.js", {});
+  var e = m.WifiErrors.explain("secrets were required, but none provided", 4);
+  assert.strictEqual(e.baslik, "Şifre yanlış");
+});
+
+test("recognizes dhcp failure", function () {
+  var m = loadModule("wifi_errors.js", {});
+  var e = m.WifiErrors.explain("connection activation failed: dhcp failed", 10);
+  assert.strictEqual(e.baslik, "IP adresi alınamadı");
+});
+
+test("unknown stderr with non-zero code gives generic Wi-Fi error", function () {
+  var m = loadModule("wifi_errors.js", {});
+  var e = m.WifiErrors.explain("something weird", 7);
+  assert.strictEqual(e.baslik, "Wi-Fi bağlanamadı");
+});
+
+test("empty stderr with code 0 gives soft message", function () {
+  var m = loadModule("wifi_errors.js", {});
+  var e = m.WifiErrors.explain("", 0);
+  assert.strictEqual(e.baslik, "Bağlantı tamamlanamadı");
+});
+
+// ---------- log.js ----------
+section("log.js");
+
+test("ring buffer keeps last entries, tail returns them as JSON lines", function () {
+  var m = loadModule("log.js", { storage: {} });
+  m.Log.info("ui", "one");
+  m.Log.warn("ui", "two");
+  m.Log.error("ui", "three");
+  var tail = m.Log.tail(5);
+  assert.strictEqual(tail.length, 3);
+  var last = JSON.parse(tail[2]);
+  assert.strictEqual(last.lvl, "error");
+  assert.strictEqual(last.msg, "three");
+  assert.strictEqual(last.area, "ui");
+});
+
+test("extra fields are merged into log record", function () {
+  var m = loadModule("log.js", { storage: {} });
+  m.Log.info("tv", "channel change", { chan: "TRT 1" });
+  var rec = JSON.parse(m.Log.tail(1)[0]);
+  assert.strictEqual(rec.chan, "TRT 1");
+});
+
 // ---------- summary ----------
 console.log("\n" + passed + " ok, " + failed + " failed");
 if (failed > 0) { process.exit(1); }

@@ -519,14 +519,48 @@
 <script>
 (function () {
   var KEY = "beeos.remote.pin", PREFS = "beeos.remote.prefs";
+  var SESS = "beeos.remote.session";
   // Tarayıcıda denemek için: remote.html?mock (PIN 123456)
   var MOCK = /[?&]mock\b/.test(location.search);
   var pin = "", prefs = { haptic: true, live: true, ctl: "pad" };
+  var session = null;       // {id: hex32, secret: Uint8Array32}
   try {
     pin = localStorage.getItem(KEY) || "";
+    var s = JSON.parse(localStorage.getItem(SESS) || "null");
+    if (s && /^[0-9a-f]{32}$/.test(s.id) && /^[0-9a-f]{64}$/.test(s.secret)) {
+      session = { id: s.id, secret: hexToBytes(s.secret) };
+    }
     var p = JSON.parse(localStorage.getItem(PREFS) || "{}");
     for (var k in p) { if (p.hasOwnProperty(k)) { prefs[k] = p[k]; } }
   } catch (e) {}
+
+  function hexToBytes(h) {
+    var out = new Uint8Array(h.length / 2);
+    for (var i = 0; i < out.length; i++) { out[i] = parseInt(h.substr(i * 2, 2), 16); }
+    return out;
+  }
+  function bytesToHex(b) {
+    var o = ""; for (var i = 0; i < b.length; i++) { o += (b[i] < 16 ? "0" : "") + b[i].toString(16); } return o;
+  }
+  function randNonce() {
+    var a = new Uint8Array(12); crypto.getRandomValues(a); return bytesToHex(a);
+  }
+
+  // HMAC-SHA256: msg hesabı için WebCrypto. SubtleCrypto async, bu yüzden call() async olmak zorunda.
+  function sign(secret, msg, cb) {
+    crypto.subtle.importKey("raw", secret, {name: "HMAC", hash: "SHA-256"}, false, ["sign"])
+      .then(function (k) { return crypto.subtle.sign("HMAC", k, msg); })
+      .then(function (buf) { cb(bytesToHex(new Uint8Array(buf))); })
+      .catch(function () { cb(""); });
+  }
+
+  function saveSession(s) {
+    session = s;
+    try {
+      if (s) { localStorage.setItem(SESS, JSON.stringify({id: s.id, secret: bytesToHex(s.secret)})); }
+      else { localStorage.removeItem(SESS); }
+    } catch (e) {}
+  }
 
   function $(id) { return document.getElementById(id); }
   function all(sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); }
@@ -535,21 +569,42 @@
   function buzz(ms) { if (prefs.haptic && navigator.vibrate) { navigator.vibrate(ms || 10); } }
 
   // ---------- sunucu ----------
+  // Oturum varsa HMAC-SHA256 ile istek imzalanır (PIN ağa gitmez). Yoksa PIN'le gider — bu
+  // hâlâ HTTPS üstünde ama tek seferlik uygulanmalı: pair sırasında oturum alıp ondan sonra sign.
   function call(path, body, cb) {
     if (MOCK) { setTimeout(function () { mock(path, body || {}, cb); }, 120); return; }
-    var x = new XMLHttpRequest();
-    x.open("POST", path, true);
-    x.timeout = path === "/api/launch" ? 15000 : 8000;
-    x.setRequestHeader("Content-Type", "application/json");
-    x.setRequestHeader("X-BeeOS-PIN", pin);
-    x.onreadystatechange = function () {
-      if (x.readyState !== 4) { return; }
-      var res = null;
-      try { res = JSON.parse(x.responseText); } catch (e) {}
-      cb(x.status, res || {});
-    };
-    x.ontimeout = function () { cb(0, {}); };
-    x.send(JSON.stringify(body || {}));
+    var bodyStr = JSON.stringify(body || {});
+    function send(headers) {
+      var x = new XMLHttpRequest();
+      x.open("POST", path, true);
+      x.timeout = path === "/api/launch" ? 15000 : 8000;
+      x.setRequestHeader("Content-Type", "application/json");
+      for (var k in headers) { if (headers.hasOwnProperty(k)) { x.setRequestHeader(k, headers[k]); } }
+      x.onreadystatechange = function () {
+        if (x.readyState !== 4) { return; }
+        var res = null;
+        try { res = JSON.parse(x.responseText); } catch (e) {}
+        if (x.status === 401 && session) { saveSession(null); }
+        // Pair cevabında yeni session: sakla
+        if (res && res.ok && res.session && res.secret && /^[0-9a-f]{64}$/.test(res.secret)) {
+          saveSession({ id: res.session, secret: hexToBytes(res.secret) });
+          delete res.secret;
+        }
+        cb(x.status, res || {});
+      };
+      x.ontimeout = function () { cb(0, {}); };
+      x.send(bodyStr);
+    }
+    if (session && crypto.subtle) {
+      var nonce = randNonce();
+      var msg = new TextEncoder().encode("POST\n" + path + "\n" + nonce + "\n" + bodyStr);
+      sign(session.secret, msg, function (sig) {
+        if (!sig) { send({ "X-BeeOS-PIN": pin }); return; }
+        send({ "X-BeeOS-Session": session.id, "X-BeeOS-Sig": sig, "X-BeeOS-Nonce": nonce });
+      });
+    } else {
+      send({ "X-BeeOS-PIN": pin });
+    }
   }
 
   // Tuşlar ve yazı sırayla gider (sıra bozulursa harfler karışır). Basılı tutma tekrarları kuyruk dolunca atlanır.
@@ -1192,10 +1247,13 @@
     pin = v;
     $("msg").textContent = "Bağlanıyor…";
     $("msg").className = "";
-    call("/api/pair", null, function (status, res) {
+    // Pair: cihaz adı HMAC oturumuna etiket olur (TV'de "aktif cihazlar" listesinde görünür).
+    var devName = (navigator.platform || "") + " " + (/Mobi/.test(navigator.userAgent) ? "telefon" : "tarayıcı");
+    call("/api/pair", { name: devName.trim().slice(0, 48) }, function (status, res) {
       pairing = false;
       if (status === 200 && res.ok) {
-        try { localStorage.setItem(KEY, pin); } catch (e) {}
+        // Oturum geldi mi call() kendi sakladı; artık PIN'i de silebiliriz.
+        try { if (session) { localStorage.removeItem(KEY); pin = ""; } else { localStorage.setItem(KEY, pin); } } catch (e) {}
         $("msg").textContent = "";
         $("pin").blur();
         buzz(30);

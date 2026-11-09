@@ -736,13 +736,38 @@
     pressCancel();
     osk = { text: o.text || "", secret: !!o.secret, show: false, placeholder: o.placeholder || "",
             max: o.max || 64, layer: "abc", caps: false, r: 1, c: 0, typed: false,
-            onDone: o.onDone, onCancel: o.onCancel, back: mode };
+            onDone: o.onDone, onCancel: o.onCancel, back: mode, suggest: o.suggest || null };
     mode = "osk";
     Sound.play("open");
     $("oskTitle").textContent = o.title;
     renderOskKeys();
     renderOskText();
+    renderOskSuggest();
     stage.classList.add("osk-open");
+  }
+
+  // Yazılan metne göre tahmin şeridi — SearchSuggest'ten gelen önceki aramalar.
+  function renderOskSuggest() {
+    var box = $("oskSuggest");
+    if (!box) {
+      box = document.createElement("div");
+      box.id = "oskSuggest";
+      $("osk").insertBefore(box, $("oskKeys"));
+    }
+    box.innerHTML = "";
+    if (!osk.suggest) { box.style.display = "none"; return; }
+    var hits = osk.suggest(osk.text, 5) || [];
+    if (!hits.length) { box.style.display = "none"; return; }
+    box.style.display = "";
+    hits.forEach(function (q) {
+      var el = div("osuggest", q);
+      el.addEventListener("click", function () {
+        osk.text = q;
+        renderOskText();
+        renderOskSuggest();
+      });
+      box.appendChild(el);
+    });
   }
 
   function oskLayout() {
@@ -835,11 +860,13 @@
     osk.text += ch;
     osk.typed = !!typed;
     renderOskText();
+    renderOskSuggest();
   }
 
   function oskBack() {
     osk.text = osk.text.slice(0, -1);
     renderOskText();
+    renderOskSuggest();
   }
 
   function oskPress(k) {
@@ -893,9 +920,11 @@
     var targets = searchTargets();
     if (!targets.length) { toast("Arama yapılabilecek uygulama yok"); return; }
     showOsk({ title: "Ara", text: initial, placeholder: "Film, dizi, şarkı, kanal…", max: 80,
+      suggest: typeof SearchSuggest !== "undefined" ? SearchSuggest.suggest : null,
       onDone: function (q) {
         q = trim(q);
         if (!q) { return; }
+        if (typeof SearchSuggest !== "undefined") { SearchSuggest.record(q); }
         var opts = targets.map(function (it) {
           return { label: it.name, run: function () { searchIn(it, q); } };
         });
@@ -934,6 +963,9 @@
     { group: "Sistem", label: "Güncellemeleri kontrol et", type: "action", only: "pc",
       info: function () { return updateSummary(); },
       run: function () { fromSettingsRow(openUpdate); } },
+    { label: "Tanı", type: "action", only: "pc",
+      info: function () { return "Sorun giderme bilgisi"; },
+      run: function () { fromSettingsRow(openDiag); } },
     { group: "Bağlantılar", label: "Ağ ve Bluetooth", type: "action", only: "tv",
       info: function () { return "TV ayarlarında açılır"; },
       run: function () { closePanel(); launch(findItem("com.palm.app.settings") || TV_SETTINGS); } },
@@ -945,6 +977,8 @@
     { key: "saverStyle", label: "Stil", only: "tv", values: ["clock", "hive", "flow"], names: ["Saat", "Petek", "Renk akışı"] },
     { label: "Şimdi dene", type: "action", run: function () { closePanel(); showSaver(); } },
     { group: "Erişilebilirlik", key: "textSize", label: "Yazı boyutu", values: ["normal", "large"], names: ["Normal", "Büyük"] },
+    { key: "subSize", label: "Alt yazı boyu", values: ["small", "medium", "large", "xlarge"], names: ["Küçük", "Orta", "Büyük", "Çok büyük"] },
+    { key: "subBg", label: "Alt yazı arkaplanı", values: ["none", "shadow", "box"], names: ["Yok", "Gölge", "Kutu"] },
     { key: "contrast", label: "Yüksek kontrast", values: ON_OFF.values, names: ON_OFF.names },
     { key: "hints", label: "Tuş ipuçları", values: ["auto", "on", "off"], names: ["İlk açılışlarda", "Hep göster", "Gizle"] },
     { group: "Ses", key: "sounds", label: "Ses efektleri", values: ON_OFF.values, names: ON_OFF.names },
@@ -1006,12 +1040,12 @@
   }
 
   function loadVersion() {
-    if (Platform.info().version) { VERSION = Platform.info().version; return; }
+    if (Platform.info().version) { VERSION = Platform.info().version; window.BEEOS_VERSION = VERSION; return; }
     var x = new XMLHttpRequest();
     x.open("GET", "appinfo.json", true);
     x.onreadystatechange = function () {
       if (x.readyState !== 4) { return; }
-      try { VERSION = JSON.parse(x.responseText).version || ""; } catch (e) {}
+      try { VERSION = JSON.parse(x.responseText).version || ""; window.BEEOS_VERSION = VERSION; } catch (e) {}
     };
     x.send();
   }
@@ -1081,6 +1115,12 @@
         val.textContent = "‹  " + o.names[at < 0 ? 0 : at] + "  ›";
       }
       el.appendChild(val);
+      if (o.html) {
+        var extra = document.createElement("div");
+        extra.className = "pextra";
+        extra.innerHTML = o.html;
+        el.appendChild(extra);
+      }
       el.addEventListener("mousemove", panelHover(i));
       el.addEventListener("click", panelClick(i));
       list.appendChild(el);
@@ -1357,7 +1397,15 @@
         pollStatus();
       } else {
         Sound.play("error");
-        toast("Bağlanılamadı" + (res && res.error ? ": " + res.error : ""));
+        var msg = "Bağlanılamadı";
+        var raw = res && res.error ? String(res.error) : "";
+        if (typeof WifiErrors !== "undefined") {
+          var e = WifiErrors.explain(raw, res && res.code);
+          msg = e.baslik + (e.ipucu ? " — " + e.ipucu : "");
+        } else if (raw) {
+          msg += ": " + raw;
+        }
+        toast(msg);
       }
       scanWifi();
     });
@@ -1381,6 +1429,14 @@
   function remoteView() {
     var r = remoteInfo;
     function noop() {}
+    // QR: telefonun kameraya tuttuğunda URL + PIN'i bir kerede alsın
+    var qrHtml = "";
+    if (r && r.enabled && r.urls && r.urls.length && typeof QR !== "undefined") {
+      var payload = "beeos://pair?host=" + r.urls[0].replace("http://", "") + "&pin=" + r.pin;
+      try {
+        qrHtml = '<img class="pqr" alt="QR kod" src="' + QR.toDataUri(payload, 240) + '">';
+      } catch (e) { qrHtml = ""; }
+    }
     return withBack({
       head: "Telefon kumandası", remote: true,
       sub: "Telefonda adresi aç, PIN'i gir. Telefon aynı ağda olmalı.",
@@ -1393,10 +1449,71 @@
           info: function () { return !r ? "…" : r.urls.length ? r.urls[0].replace("http://", "") : "Ağ bağlantısı yok"; } },
         { label: "PIN", type: "action", run: noop, big: true,
           info: function () { return r ? r.pin.replace(/^(\d{3})(\d{3})$/, "$1 $2") : "…"; } },
+        { label: "QR ile eşle", type: "action", run: noop, html: qrHtml,
+          info: function () { return qrHtml ? "Telefonun kamerasına tut" : "Önce kumandayı aç"; } },
         { group: "Güvenlik", label: "Yeni PIN üret", type: "action", confirm: true,
           info: function () { return "Telefonlar yeniden PIN ister"; },
           run: function () { loadRemote({ newPin: true }); } }
       ]
+    });
+  }
+
+  // ---------- PC: Tanı ekranı ----------
+  var diagInfo = null;
+
+  function openDiag() {
+    diagInfo = null;
+    openPanel(diagView());
+    if (typeof Diag !== "undefined") {
+      Diag.collect(function (info) { diagInfo = info; refreshView("diag", diagView); });
+    }
+  }
+
+  function diagView() {
+    var noop = function () {};
+    var rows = [];
+    if (!diagInfo) {
+      rows.push({ label: "Bilgi toplanıyor…", type: "action", run: noop, info: function () { return ""; } });
+    } else {
+      var d = diagInfo;
+      rows.push({ group: "Sürüm", label: "beeOS", type: "action", run: noop, info: function () { return d.version; } });
+      rows.push({ label: "Platform", type: "action", run: noop, info: function () { return d.platform; } });
+      if (d.backend && d.backend.net) {
+        rows.push({ group: "Ağ", label: "IP", type: "action", run: noop, info: function () { return d.backend.net.ip || "—"; } });
+      }
+      if (d.backend && d.backend.disk) {
+        rows.push({ group: "Disk", label: "/opt/beeos", type: "action", run: noop,
+                    info: function () { return Math.round((d.backend.disk.beeos || 0) * 100) + "% dolu"; } });
+      }
+      if (d.storage) {
+        rows.push({ group: "Yerel", label: "localStorage", type: "action", run: noop,
+                    info: function () { return d.storage.approxMB + " MB"; } });
+      }
+      // Tanıyı arka uca gönder (yerel diske yazar): hata bul-yüklemesi için
+      rows.push({ group: "Gönder", label: "Tanıyı günlüğe yaz", type: "action", confirm: true,
+                  info: function () { return "Son " + d.recent_log.length + " satır log'a kaydedilir"; },
+                  run: function () {
+                    Platform.api("POST", "/api/log", { events: d.recent_log.map(function (ln) {
+                      try { return JSON.parse(ln); } catch (e) { return { msg: String(ln) }; }
+                    }) }, function (res) {
+                      if (res && res.ok) { toast("Tanı günlüğe yazıldı"); }
+                      else { toast("Günlüğe yazılamadı"); }
+                    });
+                  } });
+      // QR ile telefona aktar: kısa özet
+      var summary = (typeof Diag !== "undefined") ? Diag.shortSummary(d) : "";
+      var qrHtml = "";
+      if (summary && typeof QR !== "undefined") {
+        try { qrHtml = '<img class="pqr" alt="QR" src="' + QR.toDataUri(summary, 220) + '">'; } catch (e) {}
+      }
+      rows.push({ group: "Paylaş", label: "QR ile telefona", type: "action", run: noop, html: qrHtml,
+                  info: function () { return qrHtml ? "Telefonun kamerasına tut" : ""; } });
+    }
+    return withBack({
+      head: "Tanı", diag: true,
+      sub: "Sorun giderme için bilgi. Hiçbir şey otomatik gönderilmez.",
+      rows: rows,
+      foot: "QR kodu telefonla okut: beeOS sürümü, IP ve güncelleme durumu birlikte gelir."
     });
   }
 
@@ -1480,6 +1597,16 @@
     if (!busy) {
       rows.push({ group: avail ? null : "Kurulum", label: "Tekrar kontrol et", type: "action", run: checkUpdate,
                   info: function () { return u && u.latest && !u.available && !updErr ? "beeOS güncel" : ""; } });
+    }
+    // Rollback: önceki sürüm diskte duruyorsa (.prev) kullanıcı dönebilir.
+    if (!busy && u && u.rollback && u.rollback.available) {
+      rows.push({ group: "Geri dön", label: "Önceki sürüme dön", type: "action", big: true,
+                  info: function () { return u.rollback.version ? "beeOS " + u.rollback.version : ""; },
+                  run: function () {
+                    upd.state = "install"; upd.progress = 0;
+                    refreshView("update", updateView);
+                    Platform.api("POST", "/api/update/rollback", null, setUpdate);
+                  } });
     }
     var note = updErr ? "Hata: " + updErr
       : busy ? "Güncelleme kurulurken bilgisayarı kapatma. Bitince ekran kendiliğinden yenilenir."
@@ -1789,6 +1916,11 @@
     setCls(stage, "big", S.textSize === "large");
     setCls(stage, "hc", S.contrast);
     setCls(stage, "no-hint", !(S.hints === "on" || (S.hints === "auto" && S.hintRuns <= 5)));
+    // Alt yazı CSS değişkenleri: hls.js/shaka WebVTT render'ı bunları okur
+    var sub = document.documentElement.style;
+    sub.setProperty("--sub-size", ({small:"22px",medium:"28px",large:"36px",xlarge:"48px"})[S.subSize] || "28px");
+    sub.setProperty("--sub-bg", ({none:"transparent",shadow:"transparent",box:"rgba(0,0,0,0.75)"})[S.subBg] || "transparent");
+    sub.setProperty("--sub-shadow", S.subBg === "shadow" ? "0 2px 6px rgba(0,0,0,0.9),0 0 2px rgba(0,0,0,0.9)" : "none");
     if (S.ambient && rows.length) { lastAmbient = ""; setAmbient(curItem().colors[0]); }
     tick();
     resetIdle();
@@ -2126,6 +2258,7 @@
   focusId = lastOpenedId();     // odak en son açılan uygulamada başlar
   renderRows();
   applySettings();
+  if (typeof A11y !== "undefined") { A11y.syncReducedMotion(); }
   startBoot();
   // Ortam belli olunca (PC arka ucu cevap verirse) raflar o ortama göre yeniden çizilir
   Platform.detect(function () {

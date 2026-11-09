@@ -31,7 +31,10 @@ var Store = (function () {
     recentShelf: true,   // "Son açılanlar" rafını göster
     recentMax: 7,        // "Son açılanlar"da gösterilecek en fazla kart
     epg: true,           // Yayın akışı (EPG): kanal listesinde ve OSD'de "şimdi / sırada"
-    epgUrl: ""           // XMLTV adresi. Boşsa kapalı; dolu adres kanal listesinde "şimdi/sırada" bilgisini açar.
+    epgUrl: "",          // XMLTV adresi. Boşsa kapalı; dolu adres kanal listesinde "şimdi/sırada" bilgisini açar.
+    subSize: "medium",   // Alt yazı boyu: "small" | "medium" | "large" | "xlarge"
+    subBg: "shadow",     // Alt yazı arkaplanı: "none" | "shadow" | "box"
+    telemetry: false     // Opt-in: UI log hatalarını arka uca /api/log olarak yazsın mı
   };
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }

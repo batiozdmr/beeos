@@ -1,0 +1,10 @@
+[Unit]
+Description=beeOS: günlük journal temizliği
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=15min
+
+[Install]
+WantedBy=timers.target

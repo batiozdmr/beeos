@@ -1,0 +1,7 @@
+[Unit]
+Description=beeOS: journald boyutunu sınırla (BEEOS-LOG 64 MB)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/journalctl --vacuum-size=32M
+ExecStart=/usr/bin/journalctl --vacuum-time=14d

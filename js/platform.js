@@ -84,6 +84,10 @@ var Platform = (function () {
         u.notes = "Arayüzden güncelleme, VirtualBox test ortamı ve hata düzeltmeleri.";
       }
       if (path === "/api/update/install" && u.available) { u.state = "download"; u.progress = 0; u.error = ""; }
+      if (path === "/api/update/rollback") {
+        u.state = "install"; u.progress = 100;
+        setTimeout(function () { u.state = "restart"; }, 500);
+      }
       if (path === "/api/update" && u.state === "download") {
         u.progress = Math.min(100, u.progress + 20);
         if (u.progress >= 60 && /[?&]updfail\b/.test(location.search)) {
@@ -93,7 +97,10 @@ var Platform = (function () {
       else if (path === "/api/update" && u.state === "restart") {
         u.current = u.latest; u.available = false; u.state = "idle";
       }
-      return JSON.parse(JSON.stringify(u));
+      // Rollback mock için her zaman mevcut (?pc&rollback)
+      var out = JSON.parse(JSON.stringify(u));
+      out.rollback = { available: /[?&]rollback\b/.test(location.search), version: "0.3.0" };
+      return out;
     },
     answer: function (method, path, body) {
       if (path.indexOf("/api/update") === 0) { return this.update(path); }
@@ -101,6 +108,12 @@ var Platform = (function () {
         return { ok: true, apps: { "youtube.leanback.v4": "Lofi hip hop radio - beats to relax/study to - YouTube" } };
       }
       if (path === "/api/status") { return { ok: true, online: true, name: this.current, remoteSeq: 0 }; }
+      if (path === "/api/diag") {
+        return { ok: true, net: { ssid: this.current, ip: "192.168.1.42" },
+                 disk: { beeos: 0.18, log: 0.05 },
+                 update: { state: this.upd.state, current: this.upd.current },
+                 proxy: { count: 12, err: 0 } };
+      }
       if (path === "/api/remote") {
         if (body && body.newPin) { this.remote.pin = String(100000 + Math.floor(Math.random() * 900000)); }
         if (body && typeof body.enabled === "boolean") { this.remote.enabled = body.enabled; }

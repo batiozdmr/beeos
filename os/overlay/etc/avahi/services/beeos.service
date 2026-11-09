@@ -1,0 +1,13 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!-- beeOS telefon kumandası mDNS yayını. Telefon uygulaması `_beeos._tcp` arar,
+     bulunca TXT'den sürümü okur. Gerçek PIN hiçbir zaman burada yayımlanmaz. -->
+<service-group>
+  <name replace-wildcards="yes">beeOS %h</name>
+  <service>
+    <type>_beeos._tcp</type>
+    <port>8081</port>
+    <txt-record>v=1</txt-record>
+    <txt-record>app=beeos</txt-record>
+  </service>
+</service-group>

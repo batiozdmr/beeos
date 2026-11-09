@@ -35,6 +35,20 @@ jobs:
       - name: Güncelleme paketi
         run: python tools/release.py pack
 
+      - name: Minisign imzala (opsiyonel)
+        if: ${{ env.BEEOS_SIGN_KEY != '' }}
+        env:
+          BEEOS_SIGN_KEY: ${{ secrets.BEEOS_SIGN_KEY }}
+          BEEOS_SIGN_PASS: ${{ secrets.BEEOS_SIGN_PASSPHRASE }}
+        run: |
+          sudo apt-get install -y minisign
+          echo "$BEEOS_SIGN_KEY" > key.sec
+          chmod 600 key.sec
+          for pkg in build/release/beeos-update-*.tar.gz; do
+            echo -e "$BEEOS_SIGN_PASS\n" | minisign -S -s key.sec -m "$pkg"
+          done
+          rm -f key.sec
+
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
