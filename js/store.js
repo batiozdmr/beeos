@@ -25,7 +25,13 @@ var Store = (function () {
     tvBuiltin: true,     // TV: yerleşik kanallar (js/channels.js)
     tvLists: [],         // TV: eklenen M3U listeleri [{ name, url }]
     tvFav: [],           // TV: favori kanalların yayın adresleri
-    tvLast: ""           // TV: son izlenen kanalın yayın adresi
+    tvLast: "",          // TV: son izlenen kanalın yayın adresi
+    favorites: [],       // Favori kartların kimlikleri (yeni) — en üstteki "Favoriler" rafı
+    favShelf: true,      // "Favoriler" rafını göster
+    recentShelf: true,   // "Son açılanlar" rafını göster
+    recentMax: 7,        // "Son açılanlar"da gösterilecek en fazla kart
+    epg: true,           // Yayın akışı (EPG): kanal listesinde ve OSD'de "şimdi / sırada"
+    epgUrl: ""           // XMLTV adresi. Boşsa kapalı; dolu adres kanal listesinde "şimdi/sırada" bilgisini açar.
   };
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }

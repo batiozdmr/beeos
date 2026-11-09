@@ -21,7 +21,8 @@ var TV = (function () {
   function init(e) {
     env = e;
     ["tvp", "tvStatus", "tvMsg", "tvMsgSub", "tvNum", "tvOsd", "tvOsdNum", "tvOsdName", "tvOsdMeta",
-     "tvOsdTime", "tvList", "tvListHead", "tvListRows", "tvListFoot"].forEach(function (id) { el[id] = $(id); });
+     "tvOsdTime", "tvOsdEpg", "tvOsdEpgNow", "tvOsdEpgBar", "tvOsdEpgBarFill", "tvOsdEpgNext",
+     "tvList", "tvListHead", "tvListRows", "tvListFoot"].forEach(function (id) { el[id] = $(id); });
     video = $("tvVideo");
     video.addEventListener("playing", function () {
       clearTimeout(stallTimer);
@@ -45,12 +46,13 @@ var TV = (function () {
       var line = lines[i].replace(/^\s+|\s+$/g, "");
       if (!line) { continue; }
       if (/^#EXTINF/i.test(line)) {
-        info = { name: line.substring(line.lastIndexOf(",") + 1).replace(/^\s+|\s+$/g, ""), group: "", logo: "" };
+        info = { name: line.substring(line.lastIndexOf(",") + 1).replace(/^\s+|\s+$/g, ""), group: "", logo: "", tvgId: "" };
         var m, re = /([\w-]+)="([^"]*)"/g;
         while ((m = re.exec(line))) {
           if (m[1] === "group-title") { info.group = m[2]; }
           if (m[1] === "tvg-logo") { info.logo = m[2]; }
           if (m[1] === "tvg-name" && !info.name) { info.name = m[2]; }
+          if (m[1] === "tvg-id") { info.tvgId = m[2]; }
         }
       } else if (/^#EXTGRP:/i.test(line)) {
         if (info) { info.group = line.substring(8); }
@@ -130,12 +132,12 @@ var TV = (function () {
     var keepPrev = prev >= 0 ? channels[prev].url : "";
     var all = [];
     if (S().tvBuiltin) {
-      TV_CHANNELS.forEach(function (c) { all.push({ name: c.name, url: c.url, group: c.group, logo: "" }); });
+      TV_CHANNELS.forEach(function (c) { all.push({ name: c.name, url: c.url, group: c.group, logo: "", tvgId: c.tvgId || "" }); });
     }
     S().tvLists.forEach(function (l) {
       var d = lists[l.url];
       if (d && d.state === "ok") {
-        d.channels.forEach(function (c) { all.push({ name: c.name, url: c.url, group: c.group, logo: c.logo, list: l.name }); });
+        d.channels.forEach(function (c) { all.push({ name: c.name, url: c.url, group: c.group, logo: c.logo, list: l.name, tvgId: c.tvgId || "" }); });
       }
     });
     var seen = {};
@@ -164,11 +166,22 @@ var TV = (function () {
     document.getElementById("stage").classList.add("tv-on");
     rebuild();
     loadLists();
+    loadEpg();
     if (!channels.length) {
       setState("err", "Kanal yok", "Ayarlar > TV bölümünden yerleşik kanalları aç veya M3U listesi ekle");
       return;
     }
     play(cur >= 0 ? cur : 0);
+  }
+
+  // EPG (yayın akışı) açıksa XMLTV verisini indir. Geldiğinde OSD ve kanal listesi tazelenir.
+  function loadEpg() {
+    if (!S().epg || !S().epgUrl || typeof EPG === "undefined") { return; }
+    EPG.load(S().epgUrl, function (ok) {
+      if (!active || !ok) { return; }
+      if (listOpen) { renderList(); }
+      if (el.tvOsd.className) { showOsd(); }
+    });
   }
 
   function close() {
@@ -305,9 +318,39 @@ var TV = (function () {
     el.tvOsdName.textContent = ch.name + (isFav(ch) ? "  ★" : "");
     el.tvOsdMeta.textContent = ch.group + (ch.list ? "  ·  " + ch.list : "");
     el.tvOsdTime.textContent = env.clock();
+    fillEpg(ch);
     el.tvOsd.className = "on";
     clearTimeout(osdTimer);
     osdTimer = setTimeout(function () { el.tvOsd.className = ""; }, OSD_MS);
+  }
+
+  // OSD'deki yayın akışı alanını (şimdi/sırada + ilerleme çubuğu) doldur. EPG kapalıysa / veri yoksa gizle.
+  function fillEpg(ch) {
+    var nn = (S().epg && typeof EPG !== "undefined") ? EPG.getNowNext(ch.tvgId) : null;
+    if (!nn || (!nn.now && !nn.next)) {
+      el.tvOsdEpg.className = "";
+      el.tvOsdEpgNow.textContent = "";
+      el.tvOsdEpgNext.textContent = "";
+      el.tvOsdEpgBarFill.style.width = "0%";
+      return;
+    }
+    el.tvOsdEpg.className = "on";
+    if (nn.now) {
+      el.tvOsdEpgNow.textContent = "ŞİMDİ  " + nn.now.title + "  ·  " + hm(nn.now.start) + "-" + hm(nn.now.stop);
+      var pct = Math.round(100 * (new Date().getTime() - nn.now.start) / (nn.now.stop - nn.now.start));
+      if (pct < 0) { pct = 0; } else if (pct > 100) { pct = 100; }
+      el.tvOsdEpgBarFill.style.width = pct + "%";
+    } else {
+      el.tvOsdEpgNow.textContent = "";
+      el.tvOsdEpgBarFill.style.width = "0%";
+    }
+    el.tvOsdEpgNext.textContent = nn.next ? "SIRADA  " + nn.next.title + "  ·  " + hm(nn.next.start) : "";
+  }
+
+  function hm(ms) {
+    var d = new Date(ms);
+    function p(n) { return n < 10 ? "0" + n : "" + n; }
+    return p(d.getHours()) + ":" + p(d.getMinutes());
   }
 
   // ---------- numarayla kanal ----------
@@ -430,12 +473,22 @@ var TV = (function () {
     } else {
       logo.textContent = initials(ch.name);
     }
+    var nameBox = document.createElement("div");
+    nameBox.className = "tvl-namebox";
     var name = document.createElement("div");
     name.className = "tvl-name";
     name.textContent = ch.name;
+    nameBox.appendChild(name);
+    var nn = (S().epg && typeof EPG !== "undefined") ? EPG.getNowNext(ch.tvgId) : null;
+    if (nn && nn.now) {
+      var epg = document.createElement("div");
+      epg.className = "tvl-epg";
+      epg.textContent = hm(nn.now.start) + " · " + nn.now.title;
+      nameBox.appendChild(epg);
+    }
     row.appendChild(num);
     row.appendChild(logo);
-    row.appendChild(name);
+    row.appendChild(nameBox);
     if (isFav(ch)) {
       var star = document.createElement("div");
       star.className = "tvl-fav";

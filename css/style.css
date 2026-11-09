@@ -703,6 +703,12 @@ html, body {
 #tvOsdName { position: absolute; left: 200px; right: 260px; top: 26px; font-size: 50px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #tvOsdMeta { position: absolute; left: 200px; right: 260px; top: 92px; font-size: 25px; opacity: 0.55; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #tvOsdTime { position: absolute; right: 40px; top: 44px; font-size: 52px; font-weight: 200; }
+#tvOsdEpg { position: absolute; left: 200px; right: 40px; top: 135px; opacity: 0; -webkit-transition: opacity 180ms ease; transition: opacity 180ms ease; }
+#tvOsdEpg.on { opacity: 1; }
+#tvOsdEpgNow { font-size: 24px; font-weight: 600; letter-spacing: 0.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#tvOsdEpgNext { margin-top: 6px; font-size: 20px; opacity: 0.55; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#tvOsdEpgBar { height: 4px; margin-top: 10px; border-radius: 2px; background: rgba(255,255,255,0.14); overflow: hidden; }
+#tvOsdEpgBarFill { height: 100%; background: #ffc83d; width: 0%; -webkit-transition: width 400ms ease; transition: width 400ms ease; }
 
 /* Kanal listesi (solda) */
 #tvList {
@@ -744,12 +750,16 @@ html, body {
 }
 .tvl-row.sel .tvl-logo { background: rgba(11, 15, 26, 0.12); }
 .tvl-logo img { width: 64px; height: 64px; object-fit: contain; }
-.tvl-name { position: absolute; left: 196px; right: 64px; top: 25px; font-size: 31px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tvl-namebox { position: absolute; left: 196px; right: 64px; top: 16px; height: 60px; overflow: hidden; }
+.tvl-name { font-size: 31px; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tvl-epg { margin-top: 4px; font-size: 18px; line-height: 1.2; opacity: 0.55; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tvl-row.sel .tvl-epg { opacity: 0.65; }
 .tvl-fav { position: absolute; right: 24px; top: 24px; font-size: 30px; color: #ffc83d; }
 .tvl-row.sel .tvl-fav { color: #c98a00; }
 .tvl-empty { padding: 30px 24px; font-size: 27px; line-height: 1.45; opacity: 0.6; }
 #tvListFoot { position: absolute; left: 50px; right: 50px; bottom: 44px; font-size: 19px; line-height: 1.5; opacity: 0.45; }
-.big .tvl-name { font-size: 35px; top: 22px; }
+.big .tvl-name { font-size: 35px; }
+.big .tvl-namebox { top: 12px; }
 .big #tvListFoot { font-size: 23px; }
 .hc #tvListFoot, .hc #tvOsdMeta, .hc #tvMsgSub { opacity: 0.9; }
 

@@ -184,7 +184,36 @@
     } else if (S.allApps && installed && installed.length) {
       defs.push({ title: "Tüm Uygulamalar", size: "small", items: installed });
     }
+    // Favoriler ve Son açılanlar için kaynak: tüm rafların kart katalogu (kimlik -> kart)
+    var catalog = {};
+    defs.forEach(function (d) {
+      d.items.forEach(function (it) { if (!it.skeleton) { catalog[it.id] = it; } });
+    });
     var out = [];
+    // Favoriler rafı (en üstte, büyük kart): kullanıcı Favorilere eklediği kartlardan oluşur
+    if (S.favShelf && S.favorites && S.favorites.length) {
+      var favItems = [];
+      for (var fi = 0; fi < S.favorites.length; fi++) {
+        var fit = catalog[S.favorites[fi]];
+        if (fit && S.hidden.indexOf(fit.id) < 0) { favItems.push(fit); }
+      }
+      if (favItems.length) { out.push({ title: "Favoriler", size: "large", items: favItems, synth: "fav" }); }
+    }
+    // Son açılanlar rafı: lastOpen'a göre azalan sırayla (özel @-kartlar hariç)
+    if (S.recentShelf) {
+      var pool = [];
+      for (var rid in S.lastOpen) {
+        if (!S.lastOpen.hasOwnProperty(rid)) { continue; }
+        if (rid.charAt(0) === "@") { continue; }
+        var rit = catalog[rid];
+        if (!rit || S.hidden.indexOf(rid) >= 0) { continue; }
+        pool.push({ it: rit, t: S.lastOpen[rid] });
+      }
+      pool.sort(function (a, b) { return b.t - a.t; });
+      var max = S.recentMax || 7;
+      var recents = pool.slice(0, max).map(function (p) { return p.it; });
+      if (recents.length) { out.push({ title: "Son açılanlar", size: "small", items: recents, synth: "recent" }); }
+    }
     for (var r = 0; r < defs.length; r++) {
       var def = defs[r];
       var ord = S.order[def.title] || [];
@@ -193,12 +222,22 @@
         return p >= 0 ? p : 1000 + def.items.indexOf(it);
       });
       items = items.filter(function (it) { return S.hidden.indexOf(it.id) < 0; });
-      if (r === 0 && S.sort === "usage") {
+      if (def.title === CONFIG.rows[0].title && S.sort === "usage") {
         items = sortBy(items, function (it) { return -(S.usage[it.id] || 0); });
       }
       if (items.length) { out.push({ title: def.title, size: def.size, items: items }); }
     }
     return out;
+  }
+
+  // Favori ekle / çıkar: kart menüsünden çağrılır. Aynı kart hem Favoriler rafında hem kendi rafında görünür.
+  function toggleFavorite(item) {
+    var at = S.favorites.indexOf(item.id);
+    if (at >= 0) { S.favorites.splice(at, 1); toast(item.name + " favorilerden çıkarıldı"); }
+    else { S.favorites.push(item.id); toast(item.name + " favorilere eklendi"); }
+    save();
+    focusId = item.id;
+    renderRows();
   }
 
   // Uygulama listesi gelene kadar gösterilen yer tutucu kartlar
@@ -556,11 +595,20 @@
   function openMenu() {
     var item = curItem(), i = rows[focusRow].index, n = model[focusRow].items.length;
     if (item.skeleton) { return; }
+    var synth = model[focusRow].synth || "";
+    var isFav = S.favorites.indexOf(item.id) >= 0;
     var opts = [];
-    if (i > 0) { opts.push({ label: "Sola taşı", run: function () { moveItem(-1); } }); }
-    if (i < n - 1) { opts.push({ label: "Sağa taşı", run: function () { moveItem(1); } }); }
-    if (i > 0) { opts.push({ label: "Başa taşı", run: function () { moveItem("first"); } }); }
-    if (item.id !== "@settings") { opts.push({ label: "Gizle", run: hideItem }); }
+    if (item.id !== "@settings") {
+      opts.push({ label: isFav ? "Favorilerden çıkar" : "Favorilere ekle",
+                  run: function () { toggleFavorite(item); } });
+    }
+    // Taşıma: Favoriler rafında favori sırası değişir, normal raflarda S.order değişir, Son açılanlar rafında yok.
+    if (synth !== "recent") {
+      if (i > 0) { opts.push({ label: "Sola taşı", run: function () { moveItem(-1); } }); }
+      if (i < n - 1) { opts.push({ label: "Sağa taşı", run: function () { moveItem(1); } }); }
+      if (i > 0) { opts.push({ label: "Başa taşı", run: function () { moveItem("first"); } }); }
+    }
+    if (item.id !== "@settings" && !synth) { opts.push({ label: "Gizle", run: hideItem }); }
     opts.push({ label: "Kapat", run: function () {} });
     showMenu(item.name, opts);
   }
@@ -627,7 +675,20 @@
 
   function moveItem(dir) {
     var row = model[focusRow];
-    if (focusRow === 0 && S.sort === "usage" && row.title === CONFIG.rows[0].title) {
+    // Favoriler rafında sıralama doğrudan S.favorites dizisinde tutulur
+    if (row.synth === "fav") {
+      var fids = S.favorites.slice();
+      var fi = rows[focusRow].index;
+      var fj = dir === "first" ? 0 : fi + dir;
+      var fid = fids.splice(fi, 1)[0];
+      fids.splice(fj, 0, fid);
+      S.favorites = fids;
+      save();
+      focusId = fid;
+      renderRows();
+      return;
+    }
+    if (row.title === CONFIG.rows[0].title && S.sort === "usage") {
       toast("Sıralama 'En çok kullanılan' modunda. Ayarlardan Manuel'e geç.");
       return;
     }
@@ -893,6 +954,9 @@
     { key: "ambient", label: "Arka plan ışığı", values: ON_OFF.values, names: ON_OFF.names },
     { key: "heroDesc", label: "Açıklamalar", values: ON_OFF.values, names: ON_OFF.names },
     { group: "Raflar", key: "sort", label: "Uygulama sırası", values: ["manual", "usage"], names: ["Manuel", "En çok kullanılan"] },
+    { key: "favShelf", label: "Favoriler rafı", values: ON_OFF.values, names: ON_OFF.names,
+      info: function () { return S.favorites.length ? S.favorites.length + " favori" : "Boş"; } },
+    { key: "recentShelf", label: "Son açılanlar rafı", values: ON_OFF.values, names: ON_OFF.names },
     { key: "allApps", label: "Tüm uygulamalar rafı", only: "tv", values: ON_OFF.values, names: ON_OFF.names },
     { group: "Sıfırlama", label: "Gizli kartları geri getir", type: "action",
       info: function () { return S.hidden.length ? S.hidden.length + " gizli" : "Yok"; },
@@ -907,6 +971,9 @@
       run: function () { S.order = {}; save(); renderRows(); toast("Sıralama sıfırlandı"); } },
     { label: "Kullanım geçmişini sıfırla", type: "action", confirm: true,
       run: function () { S.usage = {}; S.lastOpen = {}; save(); renderRows(); toast("Kullanım geçmişi sıfırlandı"); } },
+    { label: "Favorileri temizle", type: "action", confirm: true,
+      info: function () { return S.favorites.length ? S.favorites.length + " favori" : "Yok"; },
+      run: function () { if (!S.favorites.length) { return; } S.favorites = []; save(); renderRows(); toast("Favoriler temizlendi"); } },
     { label: "Tüm ayarları sıfırla", type: "action", confirm: true, danger: true,
       run: function () { S = Store.reset(); applySettings(); renderRows(); toast("Tüm ayarlar sıfırlandı"); } }
   ];
@@ -1096,6 +1163,7 @@
 
   // Ayarlar > TV: yerleşik kanallar ve eklenen M3U listeleri
   var tvNew = "", tvBusy = false;
+  var epgEdit = null;
 
   function tvSummary() {
     var n = S.tvLists.length;
@@ -1111,7 +1179,14 @@
       { group: "Kanallar", key: "tvBuiltin", label: "Yerleşik kanallar", values: ON_OFF.values,
         names: ["Açık · " + TV_CHANNELS.length + " kanal", "Kapalı"] },
       { label: "M3U listesi ekle", type: "text", max: 400, placeholder: tvBusy ? "Liste denetleniyor…" : "https://…/liste.m3u",
-        get: function () { return tvNew; }, set: function (v) { tvNew = trim(v); }, next: addTvList }
+        get: function () { return tvNew; }, set: function (v) { tvNew = trim(v); }, next: addTvList },
+      { group: "Yayın akışı (EPG)", key: "epg", label: "Şimdi/sırada göster", values: ON_OFF.values, names: ON_OFF.names,
+        info: function () { return epgInfo(); } },
+      { label: "XMLTV adresi", type: "text", max: 400,
+        placeholder: "https://…/epg.xml",
+        get: function () { return epgEdit === null ? (S.epgUrl || "") : epgEdit; },
+        set: function (v) { epgEdit = trim(v); },
+        next: saveEpgUrl }
     ];
     S.tvLists.forEach(function (l, i) {
       defs.push({ group: i === 0 ? "Eklenen listeler" : null, label: l.name, type: "action", confirm: true,
@@ -1120,9 +1195,34 @@
     });
     return withBack({ head: "TV kanalları", tv: true, rows: defs,
       note: "Kendi IPTV aboneliğinin ya da yayıncıların açıkça paylaştığı M3U listesinin adresini ekleyebilirsin. " +
-            "Tek bir yayın adresi (.m3u8) de olur. Kanallar yerleşik kanalların ardından numaralanır.",
+            "Tek bir yayın adresi (.m3u8) de olur. Kanallar yerleşik kanalların ardından numaralanır. " +
+            "EPG: XMLTV biçiminde bir adres verilirse kanal listesinde ve OSD'de 'şimdi / sırada' bilgisi görünür.",
       sub: "Yukarı/aşağı: seç · OK: değiştir · Geri: kapat",
       foot: "TV'de: yukarı/aşağı kanal · OK liste · 0-9 numara · Sarı favori · Mavi önceki kanal" });
+  }
+
+  function epgInfo() {
+    if (typeof EPG === "undefined") { return "Yüklü değil"; }
+    var s = EPG.status();
+    if (!s) { return S.epgUrl ? "Kapalı" : "Adres yok"; }
+    if (s === "load") { return "Yükleniyor…"; }
+    if (s === "ok") { return "Yüklendi"; }
+    return "Açılamadı";
+  }
+
+  function saveEpgUrl() {
+    var v = epgEdit;
+    epgEdit = null;
+    if (v === null) { refreshView("tv", tvListsView); return; }
+    if (v && !/^https?:\/\/[^\s]+$/i.test(v)) {
+      Sound.play("error"); toast("Adres http:// ya da https:// ile başlamalı");
+      refreshView("tv", tvListsView); return;
+    }
+    S.epgUrl = v;
+    save();
+    if (typeof EPG !== "undefined") { EPG.reset(); }
+    toast(v ? "EPG adresi güncellendi" : "EPG adresi silindi");
+    refreshView("tv", tvListsView);
   }
 
   function addTvList() {

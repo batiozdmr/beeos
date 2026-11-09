@@ -19,8 +19,11 @@ jobs:
       - name: Kontroller
         run: |
           python -m py_compile os/backend/beeos_server.py tools/*.py
-          for f in js/*.js os/backend/osd.js; do node --check "$f"; done
+          for f in js/*.js os/backend/osd.js tests/*.js; do node --check "$f"; done
           for f in os/*.sh os/overlay/opt/beeos/bin/beeos-*; do bash -n "$f"; done
+
+      - name: Birim testleri
+        run: node tests/run.js
 
       - name: Güncelleme paketi
         run: python tools/release.py pack

@@ -14,6 +14,8 @@ davranış kuralları: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), güvenlik bildi
 - Hero alanı + raflar, odaklanan uygulamaya göre renk değiştiren arka plan
 - Hero'da büyük marka ikonu ve içerik satırı: PC'de açık sekmenin başlığı ("Devam et"), yoksa son açılış
 - Odak açılışta en son açılan uygulamada başlar; rafta ekran dışında kart varsa kenarda ok görünür
+- **Favoriler ve Son açılanlar rafı**: kart menüsünden favoriye ekle; "Favoriler" ve "Son açılanlar"
+  en üstte görünür (ayarlardan kapatılabilir)
 - Açılış animasyonu, uygulama açılış ekranı, yükleme sırasında iskelet kartlar
 - **Canlı TV** ("TV" kartı): antensiz, internetten canlı kanallar (bkz. *Canlı TV*)
 - **Arama** ("Ara" kartı; PC'de ana ekranda harf yazmak yeter): yazılanı seçilen uygulamada arar
@@ -34,7 +36,8 @@ davranış kuralları: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), güvenlik bildi
 - `js/config.js`  kartlar ve ikonlar (uygulama kimlikleri burada)
 - `js/platform.js`  ortam algılama (TV / PC / tarayıcı) ve PC arka ucu çağrıları
 - `js/store.js`  ayar saklama, `js/sound.js`  ses efektleri, `js/app.js`  mantık
-- `js/channels.js`  yerleşik TV kanalları, `js/tv.js`  TV oynatıcı ve kanal listesi
+- `js/channels.js`  yerleşik TV kanalları, `js/tv.js`  TV oynatıcı ve kanal listesi, `js/epg.js`  XMLTV (EPG)
+- `tests/run.js`  birim testleri (Node, bağımlılıksız): `node tests/run.js`
 - `js/vendor/hls.min.js`  [hls.js](https://github.com/video-dev/hls.js) 1.5.20 (Apache-2.0): PC'de HLS oynatma
 - `js/logos.js`  marka logoları (`tools/build_logos.py` ile üretilir)
 - `logos/`  isteğe bağlı kendi logo PNG'lerin (bkz. `logos/BENIOKU.txt`)
@@ -52,6 +55,11 @@ davranış kuralları: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), güvenlik bildi
   Mavi (F4) önceki kanal · Yeşil (F2) veya sağ kanal bilgisi · Geri ana ekran.
 - **Oynatma**: webOS'ta TV'nin kendi oynatıcısı. PC'de hls.js; CORS izni vermeyen yayınlar (Kanal D, Star, NTV...)
   arka uçtaki aktarıcıdan (`/api/tv/proxy`) geçer. Tarayıcı testinde aktarıcı yoktur, o kanallar açılmaz.
+- **EPG (yayın akışı)**: Ayarlar > TV > *XMLTV adresi* alanına bir [XMLTV](https://wiki.xmltv.org/)
+  kaynağının adresini yaz; kanal listesinde "şimdi" programı, OSD'de "şimdi / sırada" + ilerleme çubuğu
+  görünür. Eşleşme kanal kimliği (`tvg-id`) üstündendir; yerleşik kanalların `tvg-id`'leri `js/channels.js`
+  içindedir ([iptv-org/epg](https://github.com/iptv-org/epg) yazım kurallarıyla uyumlu). Kaynak CORS izni
+  vermezse PC'de arka uçtaki aktarıcıdan indirilir.
 
 ## Tarayıcıda test
 ```
