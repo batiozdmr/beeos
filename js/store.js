@@ -34,7 +34,8 @@ var Store = (function () {
     epgUrl: "",          // XMLTV adresi. Boşsa kapalı; dolu adres kanal listesinde "şimdi/sırada" bilgisini açar.
     subSize: "medium",   // Alt yazı boyu: "small" | "medium" | "large" | "xlarge"
     subBg: "shadow",     // Alt yazı arkaplanı: "none" | "shadow" | "box"
-    telemetry: false     // Opt-in: UI log hatalarını arka uca /api/log olarak yazsın mı
+    telemetry: false,    // Opt-in: UI log hatalarını arka uca /api/log olarak yazsın mı
+    onboarded: false     // İlk açılış sihirbazı tamamlandı mı (Onboarding.start göster/atla)
   };
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }

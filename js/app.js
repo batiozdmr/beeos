@@ -1058,7 +1058,18 @@
       info: function () { return S.favorites.length ? S.favorites.length + " favori" : "Yok"; },
       run: function () { if (!S.favorites.length) { return; } S.favorites = []; save(); renderRows(); toast("Favoriler temizlendi"); } },
     { label: "Tüm ayarları sıfırla", type: "action", confirm: true, danger: true,
-      run: function () { S = Store.reset(); applySettings(); renderRows(); toast("Tüm ayarlar sıfırlandı"); } }
+      run: function () { S = Store.reset(); applySettings(); renderRows(); toast("Tüm ayarlar sıfırlandı"); } },
+    { group: "Karşılama", label: "Karşılama sihirbazını tekrar göster", type: "action",
+      info: function () { return "Hoş geldin + favori seçimi"; },
+      run: function () {
+        if (typeof Onboarding === "undefined") { toast("Sihirbaz yüklenmemiş"); return; }
+        closePanel();
+        Onboarding.start(Platform.name() || "pc", {
+          store: S,
+          saveSettings: function () { save(); applySettings(); renderRows(); },
+          done: function () { S.onboarded = true; save(); renderRows(); }
+        });
+      } }
   ];
   // Panel bir "görünüm" gösterir: { head (HTML), sub, foot, rows, back }. Satır tanımları:
   //   { key, values, names }  S[key] değerini döndürür   { type: "text", get, set, next, secret }  ekran klavyesi
@@ -2315,6 +2326,24 @@
   applySettings();
   if (typeof A11y !== "undefined") { A11y.syncReducedMotion(); }
   startBoot();
+
+  // İlk açılış sihirbazı: Store.onboarded false iken başlar (TV/PC/web otomatik)
+  function maybeOnboard() {
+    if (S.onboarded || typeof Onboarding === "undefined") { return; }
+    // Boot animasyonunun bitmesini bekle — kullanıcı önce logoyu görsün
+    setTimeout(function () {
+      Onboarding.start(Platform.name() || "pc", {
+        store: S,
+        saveSettings: function () { save(); applySettings(); renderRows(); },
+        done: function () {
+          S.onboarded = true;
+          save();
+          renderRows();
+          if (S.userName) { toast("Hoş geldin " + S.userName); }
+        }
+      });
+    }, 2600);
+  }
   // Ortam belli olunca (PC arka ucu cevap verirse) raflar o ortama göre yeniden çizilir
   Platform.detect(function () {
     loadVersion();
@@ -2329,6 +2358,8 @@
       pollDisplay();
       setInterval(pollDisplay, 4000);   // HDMI takılınca bağlantı ekranı açılsın
     }
+    // Onboarding'i platform tespiti sonrası başlat (PC'de Wi-Fi adımı anlamlı olsun)
+    maybeOnboard();
   });
   setInterval(tick, 15000);
 

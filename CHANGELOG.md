@@ -3,6 +3,15 @@
 Bu dosya [Keep a Changelog](https://keepachangelog.com/) biçimini takip eder ve [SemVer](https://semver.org/) kurallarına uyar.
 Giriş yazımı: `feat:`, `fix:`, `security:`, `perf:`, `docs:`, `chore:`.
 
+## [0.11.0] — 2026-11-10
+
+### Yeni
+- **İlk açılış sihirbazı (Onboarding)** — Yeni cihazda `Store.onboarded` false iken açılış animasyonundan
+  sonra tam ekran karşılama akışı başlar. Adımlar: Hoş geldin → Adın → (PC'de) Ağ durumu → Telefon
+  kumandası QR + fingerprint pinning → Favori seç (6 popüler karttan) → Tuş özeti → Başla.
+  Her adım atlanabilir; Dpad (TV) ve klavye (PC) ile tam gezilebilir. Ayarlar > **Karşılama
+  sihirbazını tekrar göster** ile her zaman tekrar açılır. `js/onboarding.js` (~370 satır).
+
 ## [0.10.0] — 2026-11-10
 
 ### Yeni
