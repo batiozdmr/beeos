@@ -198,5 +198,55 @@ class MirrorState(unittest.TestCase):
         self.assertEqual(bs.mirror_pending()["state"], "idle")
 
 
+@_skip_if_no_bs
+class MirrorToken(unittest.TestCase):
+    """0.9: answerer token zorunlu (Y1 düzeltmesi)."""
+    def test_answerer_requires_token(self):
+        bs.mirror_reset()
+        bs.mirror_start({"sdp": "v=0..."}, device="Dev")
+        bs.mirror_approve(True)
+        # Token'sız answerer çağrısı reddedilsin
+        r = bs.mirror_signal({"role": "answerer", "sdp": "v=0..."}, headers={"X-BeeOS": "1"})
+        self.assertFalse(r.get("ok"))
+        self.assertEqual(r.get("error"), "forbidden")
+        bs.mirror_reset()
+
+    def test_answerer_with_token_ok(self):
+        bs.mirror_reset()
+        bs.mirror_start({"sdp": "v=0..."}, device="Dev")
+        bs.mirror_approve(True)
+        # Doğru answerer_token ile kabul edilsin
+        token = bs.mirror["answerer_token"]
+        self.assertTrue(token)
+        r = bs.mirror_signal({"role": "answerer", "sdp": "v=0..."},
+                             headers={"X-BeeOS": "1", "X-BeeOS-Mirror": token})
+        self.assertTrue(r.get("ok"))
+        bs.mirror_reset()
+
+    def test_concurrent_start_rejected(self):
+        """O5: ikinci cihaz araya giremez."""
+        bs.mirror_reset()
+        bs.mirror_start({"sdp": "v=0..."}, device="İlk")
+        r2 = bs.mirror_start({"sdp": "v=0..."}, device="İkinci")
+        self.assertFalse(r2.get("ok"))
+        self.assertIn("Başka", r2.get("error", ""))
+        bs.mirror_reset()
+
+
+@_skip_if_no_bs
+class Backup(unittest.TestCase):
+    def test_export_structure(self):
+        r = bs.backup_export()
+        self.assertTrue(r.get("ok"))
+        self.assertIn("backup", r)
+        self.assertIn("version", r["backup"])
+        self.assertIn("data", r["backup"])
+
+    def test_import_invalid(self):
+        self.assertFalse(bs.backup_import(None).get("ok"))
+        self.assertFalse(bs.backup_import("string").get("ok"))
+        self.assertFalse(bs.backup_import({"no-data": True}).get("ok"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

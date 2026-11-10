@@ -3,6 +3,51 @@
 Bu dosya [Keep a Changelog](https://keepachangelog.com/) biçimini takip eder ve [SemVer](https://semver.org/) kurallarına uyar.
 Giriş yazımı: `feat:`, `fix:`, `security:`, `perf:`, `docs:`, `chore:`.
 
+## [0.9.0] — 2026-11-10
+
+0.8.0 denetiminde (bkz. `docs/audits/0.8.0.md`) çıkan 10 yeni bulgu ve kalan iş listesinin büyük bölümü.
+
+### Güvenlik
+- **Mirror answerer token** (yeni Y1): `mirror_signal` artık her iki rol için (offerer + answerer) ayrı
+  token ister. Lokal same-origin herhangi bir sayfa yabancı answer SDP enjekte edemez. Answerer token
+  URL ile iletiliyor (`mirror.html?tok=...`).
+- **ETag anahtarı düzeltildi** (yeni Y2): `(size, mtime=0)` → `(VERSION, size, crc32(ilk16KB))`.
+  Pakette mtime hep 0 olduğu için aynı boyutlu değişmiş dosyalar Chrome tarafından 304 ile eski
+  içerikle servis edilebiliyordu; artık sürüm anahtarda.
+- **Fingerprint pinning**: TV'deki QR kodu `#fp=<sha256>` içeriyor; telefon ilk pair'de fp'yi saklar,
+  sonraki açılışlarda `/api/state`'ten dönen fp ile karşılaştırır. Değişirse "güvenlik uyarısı" +
+  kullanıcı onayı (MITM işareti olabilir).
+- **İkinci cihaz arayışı** (O5): `mirror_start` `state in (pending|waiting|live)` iken reddediyor.
+  "Başka bir cihaz onay bekliyor" hatası; yanlışlıkla ikinci offer eskiyi silmez.
+- `_allow_lan` tek kaynak (`/etc/beeos/remote.json`); yanlış yerde (update.json) ayarlanmışsa uyarı
+  loglar ve geriye dönük okur.
+
+### Yeni
+- **Uyku zamanlayıcı UI** telefon kumandasında (15 / 30 / 60 / 120 dk, "uygulamaları kapat" seçeneği).
+- **Saati elle ayarla UI** (datetime-local picker).
+- **Ayarları dışa aktar**: `/api/backup` JSON döner; UI dosya olarak indirir.
+- **QR fingerprint pinning** (yukarıda) — pair ekranına ekstra güvenlik katmanı.
+
+### Sağlamlık + Düzeltme
+- `mirror_approve`'da `open_app` başarısızsa `mirror_reset` hata metniyle çağrılıyor; telefon
+  `pollAnswer` ile idle durumuna geçtiğini öğrenir (`/api/mirror/status` yeni endpoint).
+- **Açılış temizliği**: yarım `.beeos-new` / `.beeos-rollback` dosyaları silinir.
+- **Overlay rollback manifest**: yeni sürümde eklenen dosyalar rollback'te temizlenir (yetim systemd
+  unit kalmaz).
+- **Bitrate `setParameters` erken uygulama**: `addTrack` sonrası hemen (ICE connected beklenmeden)
+  uygulanıyor; ilk 1-2 sn tam bitrate'de kalma sorunu çözüldü (D1).
+
+### Performans
+- `photo_list` 60s TTL cache (ekran koruyucu her açılışta `listdir` yapmıyor artık).
+
+### Dokümantasyon + Yapı
+- Audit raporları `docs/audits/` altına taşındı.
+- 8 yeni test (mirror answerer token zorunluluğu, concurrent reddi, backup export/import).
+
+### Hâlâ bekleyen (0.10'a kalan)
+app.js parçalama, UxPlay/AirPlay alıcısı, profil/ebeveyn kilidi, bildirim merkezi, WebSocket cursor,
+CI haftalık imaj, PIN uzunluğu + IP ban.
+
 ## [0.8.0] — 2026-11-10
 
 ### Yeni

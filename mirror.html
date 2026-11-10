@@ -36,6 +36,11 @@
   var pc = null, localIce = [], polling = true, gotOffer = false, startedAt = Date.now();
   var OFFER_WAIT = 90000;      // offer bu süre içinde gelmezse çık
   var muteT = null, deviceName = "";
+  // Answerer token: mirror_approve URL ile iletti (?tok=...); sinyal çağrılarında header'a konur
+  var TOKEN = (function () {
+    var m = /[?&]tok=([A-Za-z0-9_-]{16,})/.exec(location.search);
+    return m ? m[1] : "";
+  })();
 
   // Hangi cihazın yayınladığını göster
   function fetchDevice() {
@@ -71,6 +76,7 @@
     x.open("POST", "/api/mirror/signal", true);
     x.setRequestHeader("Content-Type", "application/json");
     x.setRequestHeader("X-BeeOS", "1");
+    if (TOKEN) { x.setRequestHeader("X-BeeOS-Mirror", TOKEN); }
     x.timeout = 8000;
     x.onreadystatechange = function () {
       if (x.readyState !== 4) { return; }

@@ -473,6 +473,11 @@
 
         <div class="label">Güç</div>
         <div class="card">
+          <button class="item" id="sleepBtn">
+            <span class="ico"><svg class="i"><use href="#i-restart"/></svg></span>
+            <span class="t">Uyku zamanlayıcı<small id="sleepSub">Kapalı</small></span>
+            <span class="v">›</span>
+          </button>
           <button class="item" data-power="reboot">
             <span class="ico"><svg class="i"><use href="#i-restart"/></svg></span>
             <span class="t">Yeniden başlat</span>
@@ -480,6 +485,20 @@
           <button class="item danger" data-power="off">
             <span class="ico"><svg class="i"><use href="#i-power"/></svg></span>
             <span class="t">Kapat</span>
+          </button>
+        </div>
+
+        <div class="label">Ayarlar</div>
+        <div class="card">
+          <button class="item" id="timeBtn">
+            <span class="ico"><svg class="i"><use href="#i-gear"/></svg></span>
+            <span class="t">Saati ayarla<small>NTP çalışmayan ağlar için</small></span>
+            <span class="v">›</span>
+          </button>
+          <button class="item" id="backupBtn">
+            <span class="ico"><svg class="i"><use href="#i-send"/></svg></span>
+            <span class="t">Ayarları dışa aktar<small>JSON dosyası olarak indir</small></span>
+            <span class="v">›</span>
           </button>
         </div>
 
@@ -534,11 +553,25 @@
 <script>
 (function () {
   var KEY = "beeos.remote.pin", PREFS = "beeos.remote.prefs";
-  var SESS = "beeos.remote.session";
+  var SESS = "beeos.remote.session", FP = "beeos.remote.fingerprint";
   // Tarayıcıda denemek için: remote.html?mock (PIN 123456)
   var MOCK = /[?&]mock\b/.test(location.search);
   var pin = "", prefs = { haptic: true, live: true, ctl: "pad",
                           mouseSpeed: 2.2, mirrorQuality: "mid", mirrorAudio: true };
+  // Fingerprint pinning: QR URL ile geldiyse #fp=... parçasını sakla; sonraki açılışlarda
+  // sunucudan gelen fingerprint ile karşılaştır (MITM saptanır).
+  var expectedFp = "";
+  try {
+    var hashMatch = /[#&]fp=([A-Za-z0-9_-]{20,})/.exec(location.hash || "");
+    if (hashMatch) {
+      expectedFp = hashMatch[1];
+      localStorage.setItem(FP, expectedFp);
+      // URL'yi temizle (bookmark'ta hash kalmasın)
+      try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+    } else {
+      expectedFp = localStorage.getItem(FP) || "";
+    }
+  } catch (e) {}
   var session = null;       // {id: hex32, secret: Uint8Array32}
   try {
     pin = localStorage.getItem(KEY) || "";
@@ -669,6 +702,31 @@
     $("connText").textContent = ok ? (net ? "Bağlı · " + net : "Bağlı") : "Bağlantı yok";
   }
 
+  // Fingerprint doğrulaması: sunucu `/api/remote` ile `fingerprint` döner.
+  // Pair sonrası ilk cevapta pin'lenir; sonraki açılışlarda farklılık = MITM uyarısı + unpair.
+  function verifyFingerprint(fp) {
+    if (!fp) { return true; }           // sunucu vermediyse geç
+    if (!expectedFp) {
+      expectedFp = fp;
+      try { localStorage.setItem(FP, fp); } catch (e) {}
+      return true;
+    }
+    if (fp === expectedFp) { return true; }
+    // Fingerprint değişti: ya cert yenilendi (IP SAN) ya MITM. Kullanıcıya sor.
+    sheet('<h3 class="err" style="color:#ff5f5f">Güvenlik uyarısı</h3>' +
+      '<p>beeOS\'un sertifika parmak izi değişti. Normalde IP değişince olur, ama <b>MITM</b> saldırısının da işareti olabilir.<br><br>' +
+      'TV\'deki <b>Telefon</b> kartında yeni parmak izini kontrol et; aynıysa "Güncelle"ye dokun. Emin değilsen "Ayır".</p>' +
+      '<div class="sheet-btns"><button class="danger-btn" id="fpReject">Ayır</button>' +
+      '<button class="ghost" id="fpAccept">Güncelle (güvendiğim ağ)</button></div>');
+    document.getElementById("fpReject").onclick = function () { closeSheet(); unpair("Güvenlik gerekçesiyle ayrıldı"); };
+    document.getElementById("fpAccept").onclick = function () {
+      expectedFp = fp;
+      try { localStorage.setItem(FP, fp); } catch (e) {}
+      closeSheet();
+    };
+    return false;
+  }
+
   var stateTimer = null;
   function refresh() {
     clearTimeout(stateTimer);
@@ -676,6 +734,7 @@
     call("/api/state", null, function (status, res) {
       if (status === 401) { handle(status, res); return; }
       if (status === 200 && res.ok) {
+        if (res.fingerprint && !verifyFingerprint(res.fingerprint)) { return; }
         net = res.network || "";
         setConn(true);
         if (res.volume) { setVolume(res.volume); }
@@ -1044,6 +1103,7 @@
         s.getVideoTracks()[0].onended = function () { stop("Yansıtma bitti"); };
         pc = new RTCPeerConnection({ iceServers: [] });
         s.getTracks().forEach(function (t) { pc.addTrack(t, s); });
+        applyBitrate();     // ICE connected öncesi de uygula (ilk 1-2 sn tam bitrate'de kalmasın)
         pc.onicecandidate = function (e) {
           if (e.candidate) { offerIce.push(e.candidate.toJSON()); flushIce(); }
         };
@@ -1324,6 +1384,90 @@
     $("mirrorASw").classList.toggle("on", prefs.mirrorAudio);
     buzz(10);
   });
+
+  // --- Uyku zamanlayıcı ---
+  var SLEEP_OPTS = [15, 30, 60, 120];
+  function fmtMin(m) { return m < 60 ? m + " dk" : (m / 60) + " saat"; }
+  function refreshSleep() {
+    call("/api/sleep", null, function (status, res) {
+      if (status !== 200 || !res || !res.ok) { return; }
+      if (res.left > 0) {
+        var m = Math.ceil(res.left / 60);
+        $("sleepSub").textContent = fmtMin(m) + " sonra " + (res.action === "closeapps" ? "uygulamalar kapanır" : "kapanacak");
+      } else {
+        $("sleepSub").textContent = "Kapalı";
+      }
+    });
+  }
+  $("sleepBtn").addEventListener("click", function () {
+    buzz(8);
+    sheet('<h3>Uyku zamanlayıcı</h3><p>Seçilen süre sonunda bilgisayar kendiliğinden kapanır.</p>' +
+      '<div class="chips" id="slpChips">' + SLEEP_OPTS.map(function (m) {
+        return '<button class="chip" data-m="' + m + '">' + fmtMin(m) + '</button>';
+      }).join("") + '<button class="chip" data-m="closeapps">Uygulamaları kapat (30 dk)</button></div>' +
+      '<div class="sheet-btns"><button class="danger-btn" id="slpOff">Kapat</button>' +
+      '<button class="ghost" id="slpCancel">Vazgeç</button></div>');
+    function send(m, action) {
+      call("/api/sleep", { minutes: m, action: action || "off" }, function () { closeSheet(); refreshSleep(); });
+    }
+    $("slpChips").addEventListener("click", function (e) {
+      var c = e.target.closest ? e.target.closest(".chip") : null;
+      if (!c) { return; }
+      buzz(10);
+      var v = c.getAttribute("data-m");
+      if (v === "closeapps") { send(30, "closeapps"); } else { send(+v, "off"); }
+    });
+    $("slpOff").addEventListener("click", function () { send(0); });
+    $("slpCancel").addEventListener("click", closeSheet);
+  });
+
+  // --- Saat ayarla ---
+  $("timeBtn").addEventListener("click", function () {
+    buzz(8);
+    var now = new Date();
+    function pad(n) { return (n < 10 ? "0" : "") + n; }
+    var cur = now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate()) +
+              "T" + pad(now.getHours()) + ":" + pad(now.getMinutes());
+    sheet('<h3>Saati ayarla</h3><p>NTP (ağ saati) çalışmayan ağlarda elle ayarla. Değer telefonun saatinden önceden doldurulmuştur.</p>' +
+      '<input class="sheet-input" type="datetime-local" id="tmVal" value="' + cur + '">' +
+      '<div class="sheet-btns"><button class="primary" id="tmSet">Ayarla</button>' +
+      '<button class="ghost" id="tmCancel">Vazgeç</button></div>');
+    $("tmCancel").addEventListener("click", closeSheet);
+    $("tmSet").addEventListener("click", function () {
+      var v = $("tmVal").value;
+      if (!v) { toast("Zaman seçilmedi", true); return; }
+      call("/api/time", { time: v }, function (status, res) {
+        closeSheet();
+        if (res && res.ok) { toast("Saat ayarlandı"); }
+        else { toast((res && res.error) || "Ayarlanamadı", true); }
+      });
+    });
+  });
+
+  // --- Yedekleme ---
+  $("backupBtn").addEventListener("click", function () {
+    buzz(8);
+    call("/api/backup", null, function (status, res) {
+      if (status !== 200 || !res || !res.ok) { toast("Yedek alınamadı", true); return; }
+      try {
+        var blob = new Blob([JSON.stringify(res.backup, null, 2)], { type: "application/json" });
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "beeos-backup-" + (new Date().toISOString().slice(0, 10)) + ".json";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        toast("Yedek indirildi");
+      } catch (e) {
+        // Eski tarayıcı: metni sheet ile göster
+        sheet('<h3>Yedek (kopyala)</h3><p>Bu metni kaydet.</p>' +
+          '<textarea class="field" style="height:160px" readonly>' +
+          esc(JSON.stringify(res.backup)) + '</textarea>' +
+          '<div class="sheet-btns"><button class="ghost" id="bkOk">Tamam</button></div>');
+        $("bkOk").addEventListener("click", closeSheet);
+      }
+    });
+  });
   $("unpairBtn").addEventListener("click", function () {
     sheet('<h3>Kumanda ayrılsın mı?</h3><p>Bu telefon beeOS\'u kontrol edemez. Yeniden bağlanmak için TV\'deki PIN gerekir.</p>' +
       '<div class="sheet-btns"><button class="danger-btn" id="upGo">Ayır</button><button class="ghost" id="upNo">Vazgeç</button></div>');
@@ -1478,6 +1622,7 @@
   if ($("mirrorASw")) { $("mirrorASw").classList.toggle("on", prefs.mirrorAudio !== false); }
   updateMouseSpeedSub();
   updateMirrorQSub();
+  refreshSleep();
   paintRange();
   paintDigits();
   if (session || pin) { start(); } else { show("pair"); }

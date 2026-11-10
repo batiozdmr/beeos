@@ -1476,9 +1476,12 @@
     // QR: telefonun kameraya tuttuğunda URL + PIN'i bir kerede alsın
     var qrHtml = "";
     if (r && r.enabled && r.urls && r.urls.length && typeof QR !== "undefined") {
-      var payload = "beeos://pair?host=" + r.urls[0].replace("http://", "") + "&pin=" + r.pin;
+      // URL'yi doğrudan QR'a yazıyoruz; phone kamerası onu açınca HTTPS remote URL + fingerprint hash ile
+      // doğrudan remote.html gelir. Fingerprint pinning: phone cert'in değişip değişmediğini anlar (MITM).
+      var url = r.urls[0];
+      if (r.fingerprint) { url += "#fp=" + r.fingerprint; }
       try {
-        qrHtml = '<img class="pqr" alt="QR kod" src="' + QR.toDataUri(payload, 240) + '">';
+        qrHtml = '<img class="pqr" alt="QR kod" src="' + QR.toDataUri(url, 240) + '">';
       } catch (e) { qrHtml = ""; }
     }
     return withBack({

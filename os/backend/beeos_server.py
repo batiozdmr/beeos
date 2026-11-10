@@ -492,6 +492,49 @@ def sleep_get():
     return {"ok": True, "left": left, "action": sleep_timer["action"] if left else ""}
 
 
+# ---------- yedekleme / geri yükleme ----------
+BACKUP_FILES = {
+    "settings": "/var/lib/beeos/settings.json",   # arayüzün kendi settings'i (UI /api/backup ile yollar)
+    "remote": REMOTE_FILE,                        # kumanda eşleşmeleri + PIN
+    "lists": "/var/lib/beeos/tv-lists.json",      # (opsiyonel) M3U listeleri — UI tutuyorsa
+}
+
+
+def backup_export():
+    """Tüm kullanıcı ayarlarını tek JSON olarak döndür. UI dosyaya kaydedip başka kuruluma taşıyabilir."""
+    out = {"version": VERSION, "ts": int(time.time()), "data": {}}
+    for key, path in BACKUP_FILES.items():
+        try:
+            with open(path, encoding="utf-8") as f:
+                out["data"][key] = json.load(f)
+        except (OSError, ValueError):
+            pass
+    return {"ok": True, "backup": out}
+
+
+def backup_import(data):
+    """UI'den gelen JSON ile ayarları geri yükle. PIN/oturum dahil değil (güvenlik)."""
+    if not isinstance(data, dict) or not isinstance(data.get("data"), dict):
+        return {"ok": False, "error": "Geçersiz yedek dosyası"}
+    restored = []
+    for key, path in BACKUP_FILES.items():
+        if key == "remote":
+            continue  # eşleşmeler yeniden yapılsın (güvenlik)
+        content = data["data"].get(key)
+        if content is None:
+            continue
+        try:
+            os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(content, f)
+            os.replace(tmp, path)
+            restored.append(key)
+        except OSError as e:
+            log("backup restore başarısız:", key, repr(e))
+    return {"ok": True, "restored": restored}
+
+
 # ---------- güncelleme (GitHub Releases) ----------
 # Release'te iki dosya olur: beeos-update-<sürüm>.tar.gz (web/, bin/, overlay/) ve onun .sha256 dosyası.
 # Paket indirilir, sağlama toplamıyla doğrulanır, /opt/beeos/web ve /opt/beeos/bin klasörleri yenisiyle
@@ -735,12 +778,16 @@ def rollback_available():
 
 
 def _restore_overlay_prev():
-    """overlay.prev içindeki dosyaları orijinal yollarına geri yaz (varsa)."""
+    """overlay.prev içindeki dosyaları orijinal yollarına geri yaz (varsa).
+    Yeni sürümde eklenen dosyaları (manifest.added) sil."""
     overlay_prev = os.path.join(BEEOS_DIR, "overlay.prev")
     if not os.path.isdir(overlay_prev):
         return
+    # 1) Önceki içerikleri geri yaz
     for d, _, files in os.walk(overlay_prev):
         for n in files:
+            if n == "manifest.json":
+                continue
             src = os.path.join(d, n)
             rel = os.path.relpath(src, overlay_prev)
             dest = os.path.join("/", rel)
@@ -751,6 +798,16 @@ def _restore_overlay_prev():
                 os.replace(tmp, dest)
             except OSError as e:
                 log("overlay rollback bir dosyada başarısız:", rel, repr(e))
+    # 2) Yeni sürümde eklenen dosyaları sil (yetim systemd unit vb. kalmasın)
+    try:
+        with open(os.path.join(overlay_prev, "manifest.json"), encoding="utf-8") as f:
+            added = json.load(f).get("added", [])
+        for p in added:
+            if isinstance(p, str) and p.startswith("/"):
+                try: os.remove(p)
+                except OSError: pass
+    except (OSError, ValueError, KeyError):
+        pass
 
 
 def rollback_version():
@@ -839,10 +896,12 @@ def update_apply(r):
                 dest = os.path.join(dest_dir, n)
                 shutil.copy2(os.path.join(d, n), tmp)
                 staged.append((tmp, dest))
-        # Overlay snapshot: rollback için önceki hâllerini sakla
+        # Overlay snapshot: rollback için önceki hâllerini sakla.
+        # Ayrıca "manifest.json" — yeni sürümde eklenen dosyaların listesi (rollback'te silinecek).
         overlay_prev = os.path.join(BEEOS_DIR, "overlay.prev")
         shutil.rmtree(overlay_prev, ignore_errors=True)
         os.makedirs(overlay_prev, mode=0o700, exist_ok=True)
+        new_files = []
         for tmp, dest in staged:
             if os.path.exists(dest):
                 rel = dest.lstrip("/")
@@ -852,6 +911,14 @@ def update_apply(r):
                     shutil.copy2(dest, bak)
                 except OSError:
                     pass
+            else:
+                # Yeni sürümle eklendi; rollback'te silinmeli
+                new_files.append(dest)
+        try:
+            with open(os.path.join(overlay_prev, "manifest.json"), "w", encoding="utf-8") as f:
+                json.dump({"added": new_files}, f)
+        except OSError:
+            pass
         # Toplu rename
         for tmp, dest in staged:
             os.replace(tmp, dest)
@@ -882,9 +949,14 @@ def update_apply(r):
 
 # ---------- ekran koruyucu fotoğrafları ----------
 photos = []          # /photos/<sıra> adreslerinin gösterdiği dosyalar (son listeleme)
+_photo_cache = {"ts": 0.0, "res": None}
+_PHOTO_TTL = 60.0
 
 
 def photo_list():
+    now = time.time()
+    if _photo_cache["res"] is not None and now - _photo_cache["ts"] < _PHOTO_TTL:
+        return _photo_cache["res"]
     files = []
     for d in PHOTO_DIRS:
         try:
@@ -894,7 +966,9 @@ def photo_list():
         files += [os.path.join(d, n) for n in names
                   if n.lower().endswith(PHOTO_EXT) and not n.startswith(".")]
     photos[:] = files[:500]
-    return {"ok": True, "photos": ["/photos/%d" % i for i in range(len(photos))]}
+    _photo_cache["res"] = {"ok": True, "photos": ["/photos/%d" % i for i in range(len(photos))]}
+    _photo_cache["ts"] = now
+    return _photo_cache["res"]
 
 
 # ---------- canlı TV: yayın aktarıcı ----------
@@ -911,17 +985,25 @@ TV_LIST_MAX = 8 * 1024 * 1024    # yayın / kanal listesi için üst sınır
 
 
 def _allow_lan():
-    """Yerel ağdaki Tvheadend / router yayın hizmetlerine izin ver (opt-in)."""
-    try:
-        with open(UPDATE_CONF, encoding="utf-8") as f:
-            return bool(json.load(f).get("allowLan"))
-    except (OSError, ValueError, KeyError):
-        pass
+    """Yerel ağdaki Tvheadend / router yayın hizmetlerine izin ver (opt-in).
+    Tek kaynak: /etc/beeos/remote.json → {"allowLan": true}. Eskiden update.json'da da bakılıyordu;
+    0.9'da sadece remote.json. Uyum için eskisi varsa uyarı logla."""
     try:
         with open("/etc/beeos/remote.json", encoding="utf-8") as f:
-            return bool(json.load(f).get("allowLan"))
+            v = bool(json.load(f).get("allowLan"))
+        if v:
+            return True
     except (OSError, ValueError, KeyError):
-        return False
+        pass
+    # Uyumluluk: yanlış yerde ayarlanmış → uyar
+    try:
+        with open(UPDATE_CONF, encoding="utf-8") as f:
+            if json.load(f).get("allowLan"):
+                log("UYARI: allowLan /etc/beeos/update.json'da; /etc/beeos/remote.json'a taşı.")
+                return True
+    except (OSError, ValueError, KeyError):
+        pass
+    return False
 
 
 def tv_url_ok(url):
@@ -1409,7 +1491,8 @@ def remote_state():
         running = {}
     st = status()
     return {"ok": True, "version": VERSION, "apps": catalog, "open": running, "volume": volume_get(),
-            "online": st["online"], "network": st["name"]}
+            "online": st["online"], "network": st["name"],
+            "fingerprint": remote_cert_fingerprint()}
 
 
 # ---------- fare (touchpad): /dev/uinput ile sanal fare ----------
@@ -1538,8 +1621,12 @@ MIRROR_TIMEOUT = 60.0      # answerer bu süre içinde bağlanmazsa oturum silin
 MIRROR_IDLE = 30.0         # canlı iken ICE kesildikten sonra bu süre sessizlikte oturum düşer
 mirror = {
     "offer": None, "answer": None, "offer_ice": [], "answer_ice": [],
-    "ts": 0.0, "last": 0.0, "token": "", "pending": None,
+    "ts": 0.0, "last": 0.0,
+    "token": "",             # offerer (telefon) token'ı
+    "answerer_token": "",    # answerer (mirror.html) token'ı — URL ile iletilir
+    "pending": None,
     "device": "", "state": "idle",     # idle | pending | waiting | live
+    "error": "",             # son hata (offerer polling ile görür)
 }
 mirror_lock = threading.Lock()
 _mirror_reaper_started = False
@@ -1549,10 +1636,11 @@ def _mirror_state():
     return mirror.get("state") or "idle"
 
 
-def mirror_reset():
+def mirror_reset(error=""):
     with mirror_lock:
         mirror.update(offer=None, answer=None, offer_ice=[], answer_ice=[],
-                      ts=0.0, last=0.0, token="", pending=None, device="", state="idle")
+                      ts=0.0, last=0.0, token="", answerer_token="",
+                      pending=None, device="", state="idle", error=error)
 
 
 def _mirror_reaper():
@@ -1584,19 +1672,24 @@ def _ensure_mirror_reaper():
 
 
 def mirror_start(b, device=""):
-    """Telefon offer gönderir; kullanıcıdan onay bekleyen pending durumuna geçer."""
+    """Telefon offer gönderir; kullanıcıdan onay bekleyen pending durumuna geçer.
+    İki token üretilir: offerer (telefon header'da yollar), answerer (mirror.html URL'de alır)."""
     _ensure_mirror_reaper()
     sdp = b.get("sdp")
     if not sdp or not isinstance(sdp, str):
         return {"ok": False, "error": "offer eksik"}
     token = secrets.token_urlsafe(24)
+    ans_token = secrets.token_urlsafe(24)
     with mirror_lock:
-        if mirror["state"] in ("waiting", "live"):
-            return {"ok": False, "error": "Zaten bir yansıtma var. Önce durdur."}
+        if mirror["state"] in ("pending", "waiting", "live"):
+            # İkinci cihaz araya giremez (O5): "önce durdur veya onay ekranından reddet".
+            err = ("Başka bir cihaz onay bekliyor" if mirror["state"] == "pending"
+                   else "Zaten bir yansıtma var. Önce durdur.")
+            return {"ok": False, "error": err}
         mirror.update(offer=sdp, answer=None, offer_ice=[], answer_ice=[],
-                      ts=time.time(), last=time.time(), token=token,
+                      ts=time.time(), last=time.time(), token=token, answerer_token=ans_token,
                       pending={"ts": time.time(), "device": device or "Bilinmeyen cihaz"},
-                      device=device or "Bilinmeyen cihaz", state="pending")
+                      device=device or "Bilinmeyen cihaz", state="pending", error="")
     return {"ok": True, "token": token, "pending": True}
 
 
@@ -1615,33 +1708,41 @@ def mirror_approve(accept):
         if not p:
             return {"ok": False, "error": "Bekleyen istek yok"}
         if not accept:
-            mirror.update(offer=None, answer=None, offer_ice=[], answer_ice=[],
-                          ts=0.0, last=0.0, token="", pending=None, device="", state="idle")
+            mirror_reset("Kullanıcı reddetti")
             return {"ok": True, "rejected": True}
+        ans_token = mirror["answerer_token"]
         mirror.update(pending=None, state="waiting", ts=time.time(), last=time.time())
-    # TV sekmesi oluştur — mirror_lock dışında (DevTools 5 sn bekleyebilir)
+    # TV sekmesi oluştur — mirror_lock dışında (DevTools 5 sn bekleyebilir).
+    # Answerer token URL ile iletilir; mirror.html her imza isteğine header'a koyar.
     try:
-        tid = open_app("http://127.0.0.1:%d/mirror.html" % PORT, None)
+        tid = open_app("http://127.0.0.1:%d/mirror.html?tok=%s" % (PORT, ans_token), None)
         activate(tid)
     except Exception as e:
         log("mirror alıcı açılamadı:", repr(e))
-        mirror_reset()
+        mirror_reset("Alıcı sayfası açılamadı")
         return {"ok": False, "error": "Alıcı sayfası açılamadı"}
     return {"ok": True}
 
 
-def _check_mirror_token(headers):
+def mirror_status():
+    """Offerer polling ile görür: state (idle/pending/waiting/live) + son hata."""
+    with mirror_lock:
+        return {"ok": True, "state": mirror["state"], "error": mirror["error"] or ""}
+
+
+def _check_mirror_token(headers, kind="offerer"):
     t = headers.get("X-BeeOS-Mirror", "") if headers is not None else ""
     with mirror_lock:
-        want = mirror.get("token") or ""
+        want = mirror.get("token") if kind == "offerer" else mirror.get("answerer_token")
+        want = want or ""
     return bool(want) and hmac.compare_digest(t, want)
 
 
 def mirror_signal(b, headers=None, from_local=False):
     role = str(b.get("role", ""))   # "answerer" (TV) | "offerer" (telefon)
-    # Lokal (127.0.0.1) mirror.html answerer olarak gelir; X-BeeOS yeter.
-    # Telefon offerer olarak token göndermek zorunda.
-    if role != "answerer" and not _check_mirror_token(headers):
+    # Her iki rol de kendi token'ını sağlamak zorunda: same-origin lokal sayfa yabancı answer enjekte edemez.
+    kind = "answerer" if role == "answerer" else "offerer"
+    if not _check_mirror_token(headers, kind):
         return {"ok": False, "error": "forbidden"}
     with mirror_lock:
         if mirror["state"] not in ("waiting", "live"):
@@ -1961,13 +2062,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         # Güncelleme paketindeki dosyaların tarihi hep 1970 (tools/release.py pack): tarihle "değişmedi" (304)
         # denirse Chrome yeni sürümden sonra da eski arayüzü kullanır. Bunun yerine içerik-tabanlı ETag.
         del self.headers["If-Modified-Since"]
-        # ETag: dosyanın boyut+içerik hash'i. Değişmediyse 304 dön, bandwidth tasarrufu
+        # ETag: VERSION + size + içerik crc32. mtime pakette 0 sabit olduğu için anahtara koyulmaz;
+        # VERSION yeni sürümde değişince eski ETag'lar tümden geçersiz olur (sürüm çakışması önlenir).
         path = self.translate_path(self.path)
         if os.path.isfile(path):
             try:
                 st = os.stat(path)
-                # mtime yerine boyut; içerik hash'i 128KB üstünde pahalı olduğu için size+mtime karışımı
-                etag = '"%x-%x"' % (st.st_size, int(st.st_mtime) & 0xffffffff)
+                h = 0
+                try:
+                    with open(path, "rb") as fh:
+                        head = fh.read(16384)   # ilk 16KB içerik parmak izi
+                    import zlib
+                    h = zlib.crc32(head)
+                except OSError:
+                    pass
+                etag = '"%s-%x-%x"' % (VERSION, st.st_size, h)
                 if self.headers.get("If-None-Match") == etag:
                     self.send_response(304)
                     self.send_header("ETag", etag)
@@ -2097,10 +2206,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 res = mirror_pending()
             elif method == "POST" and path == "/api/mirror/approve":
                 res = mirror_approve(b.get("accept") is True)
+            elif method == "GET" and path == "/api/mirror/status":
+                res = mirror_status()
             elif method == "GET" and path == "/api/sleep":
                 res = sleep_get()
             elif method == "POST" and path == "/api/sleep":
                 res = sleep_set(b.get("minutes", 0), str(b.get("action", "off")))
+            elif method == "GET" and path == "/api/backup":
+                res = backup_export()
+            elif method == "POST" and path == "/api/backup":
+                res = backup_import(b.get("data"))
             elif method == "POST" and path == "/api/time":
                 s = str(b.get("time", "")).strip()
                 if not re.fullmatch(r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?", s):
@@ -2237,7 +2352,27 @@ class RemoteHandler(http.server.BaseHTTPRequestHandler):
         send_json(self, res)
 
 
+def _cleanup_half_updates():
+    """Güç kesilmesi yarım .beeos-new dosyaları bırakabilir (overlay staging). Açılışta temizle."""
+    roots = ["/etc/systemd", "/etc/opt", "/etc/beeos", "/etc/opt/chrome", "/usr/share/plymouth", BEEOS_DIR]
+    n = 0
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        for d, _, files in os.walk(root):
+            for f in files:
+                if f.endswith(".beeos-new") or f.endswith(".beeos-rollback"):
+                    try:
+                        os.remove(os.path.join(d, f))
+                        n += 1
+                    except OSError:
+                        pass
+    if n:
+        log("açılış temizliği: %d yarım dosya silindi" % n)
+
+
 def main():
+    _cleanup_half_updates()
     remote_load()
     try:
         rsrv = http.server.ThreadingHTTPServer(("0.0.0.0", REMOTE_PORT), RemoteHandler)
