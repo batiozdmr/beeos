@@ -488,6 +488,15 @@
           </button>
         </div>
 
+        <div class="label">Bildirimler</div>
+        <div class="card">
+          <button class="item" id="notifBtn">
+            <span class="ico"><svg class="i"><use href="#i-info"/></svg></span>
+            <span class="t">Bildirim merkezi<small id="notifSub">—</small></span>
+            <span class="v">›</span>
+          </button>
+        </div>
+
         <div class="label">Ayarlar</div>
         <div class="card">
           <button class="item" id="timeBtn">
@@ -1444,6 +1453,49 @@
     });
   });
 
+  // --- Bildirim merkezi ---
+  function refreshNotif() {
+    call("/api/notifications", null, function (status, res) {
+      if (status !== 200 || !res || !res.ok) { return; }
+      var n = (res.items || []).length, u = res.unread || 0;
+      $("notifSub").textContent = n ? (u ? u + " yeni · " + n + " toplam" : n + " bildirim") : "Yok";
+    });
+  }
+  $("notifBtn").addEventListener("click", function () {
+    buzz(8);
+    call("/api/notifications/seen", null, function () {});
+    call("/api/notifications", null, function (status, res) {
+      var items = (res && res.items) || [];
+      var body = '<h3>Bildirim merkezi</h3>';
+      if (!items.length) {
+        body += '<p>Henüz bir şey yok. Güncellemeler, yansıtma istekleri ve hatalar burada kalır.</p>';
+      } else {
+        body += '<div class="card" style="margin-top:10px;max-height:60vh;overflow-y:auto">';
+        items.forEach(function (n) {
+          var d = new Date(n.ts * 1000);
+          var hh = (d.getHours() < 10 ? "0" : "") + d.getHours();
+          var mm = (d.getMinutes() < 10 ? "0" : "") + d.getMinutes();
+          body += '<div class="item" style="flex-direction:column;align-items:flex-start;gap:4px">' +
+            '<div style="font-weight:600">' + esc(n.title) + '</div>' +
+            (n.body ? '<div style="color:#8b93a7;font-size:13px">' + esc(n.body) + '</div>' : "") +
+            '<div style="color:#5b6377;font-size:11px">' + hh + ':' + mm + '</div></div>';
+        });
+        body += '</div>';
+      }
+      body += '<div class="sheet-btns" style="margin-top:14px">' +
+              (items.length ? '<button class="danger-btn" id="notifClear">Hepsini sil</button>' : "") +
+              '<button class="ghost" id="notifClose">Kapat</button></div>';
+      sheet(body);
+      $("notifClose").addEventListener("click", function () { closeSheet(); refreshNotif(); });
+      if ($("notifClear")) {
+        $("notifClear").addEventListener("click", function () {
+          call("/api/notifications/clear", {}, function () { closeSheet(); refreshNotif(); });
+        });
+      }
+    });
+    refreshNotif();
+  });
+
   // --- Yedekleme ---
   $("backupBtn").addEventListener("click", function () {
     buzz(8);
@@ -1623,6 +1675,8 @@
   updateMouseSpeedSub();
   updateMirrorQSub();
   refreshSleep();
+  refreshNotif();
+  setInterval(refreshNotif, 30000);
   paintRange();
   paintDigits();
   if (session || pin) { start(); } else { show("pair"); }

@@ -1,0 +1,134 @@
+# Haftalık flash disk imajı derlemesi. os/build.sh ~15-20 dk sürdüğü için her push'ta değil,
+# pazartesi 03:00 UTC ve manuel tetiklenir. Imaj kendisi ~1-2 GB (artifact olarak değil; sadece
+# SHA-256 + boyut yayınlanır). QEMU ile kısa headless boot smoke testi (KVM yok, yavaş).
+name: image
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"   # pazartesi 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      rebuild:
+        description: "Debian + Chrome'u sıfırdan indir"
+        type: boolean
+        default: false
+      smoke:
+        description: "QEMU boot smoke testi koş"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Docker + QEMU hazır mı
+        run: |
+          docker version
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-system-x86 ovmf
+
+      - name: Derleme önbelleği (apt indirmeleri + önceki rootfs)
+        uses: actions/cache@v4
+        with:
+          path: /tmp/beeos-work
+          key: beeos-work-${{ runner.os }}-${{ hashFiles('os/build.sh') }}
+          restore-keys: beeos-work-${{ runner.os }}-
+
+      - name: Imaj derle (Linux eşdeğeri os/build.ps1)
+        id: build
+        run: |
+          mkdir -p /tmp/beeos-out /tmp/beeos-work
+          set +e
+          docker run --rm --privileged \
+            -e REBUILD=${{ inputs.rebuild && '1' || '0' }} \
+            -v /tmp/beeos-work:/work \
+            -v "$PWD:/src:ro" \
+            -v /tmp/beeos-out:/out \
+            debian:trixie bash /src/os/build.sh 2>&1 | tee /tmp/build.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::os/build.sh exit $rc"
+            exit "$rc"
+          fi
+          ls -lh /tmp/beeos-out/
+
+      - name: SHA-256 + boyut
+        if: success()
+        run: |
+          IMG=/tmp/beeos-out/beeos.img
+          du -h --apparent-size "$IMG"
+          sha256sum "$IMG" | tee /tmp/beeos-out/beeos.img.sha256
+          stat -c%s "$IMG" > /tmp/beeos-out/beeos.img.size
+
+      - name: Ürün özeti (sha256 + boyut artifact olarak)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-manifest
+          path: |
+            /tmp/beeos-out/beeos.img.sha256
+            /tmp/beeos-out/beeos.img.size
+          retention-days: 30
+
+      - name: QEMU boot smoke (KVM yok, 5 dk timeout)
+        if: success() && inputs.smoke != false
+        run: |
+          # systemd 'Welcome to beeOS' veya 'multi-user.target' ifadelerinden birini görünce başarı.
+          # KVM yok → yazılım emülasyonu çok yavaş; 5 dk timeout; başarısız olsa bile build'i kırma (|| true).
+          timeout 300 qemu-system-x86_64 \
+            -machine q35 -m 2048 -smp 2 \
+            -bios /usr/share/OVMF/OVMF_CODE.fd \
+            -drive file=/tmp/beeos-out/beeos.img,format=raw,if=virtio \
+            -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
+            -nographic -serial mon:stdio \
+            2>&1 | tee /tmp/boot.log &
+          QEMU_PID=$!
+          ok=0
+          for i in $(seq 1 90); do
+            sleep 3
+            if grep -qE "multi-user|Reached target|beeOS" /tmp/boot.log; then ok=1; break; fi
+            if ! kill -0 "$QEMU_PID" 2>/dev/null; then break; fi
+          done
+          kill -9 "$QEMU_PID" 2>/dev/null || true
+          tail -50 /tmp/boot.log
+          if [ "$ok" -ne 1 ]; then
+            echo "::warning::Smoke boot zaman aşımına uğradı (KVM yok; bilgilendirme amaçlı)"
+          fi
+
+      - name: Build logundan son 200 satır (hata tanılama)
+        if: failure()
+        run: |
+          tail -200 /tmp/build.log || true
+
+      - name: Hata durumunda GitHub issue aç
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAIL=$(tail -200 /tmp/build.log 2>/dev/null || echo "log yok")
+          BODY=$(cat <<EOF
+          Haftalık imaj derlemesi başarısız oldu (${{ github.workflow }} #${{ github.run_number }}).
+
+          **Workflow:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          **Tetikleyici:** ${{ github.event_name }}
+          **Commit:** ${{ github.sha }}
+
+          Son 200 satır:
+          \`\`\`
+          $TAIL
+          \`\`\`
+          EOF
+          )
+          gh issue create \
+            --title "image: haftalık derleme başarısız (run #${{ github.run_number }})" \
+            --label "ci,image" \
+            --body "$BODY" || true

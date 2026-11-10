@@ -128,6 +128,13 @@ bağlantıyı kes, unut; `bluetoothctl`) ve telefon kumandası. TV'de bu satır 
   - Sistem sayfasında *Yansıtma kalitesi*: Düşük (540p ~0.8 Mbps), Orta (720p ~2.5 Mbps), Yüksek
     (1080p ~5 Mbps). *Yansıtmada ses* anahtarı açıkken telefonun sesini de gönderir.
 
+  #### AirPlay (iPhone / iPad / Mac)
+  iOS Safari `getDisplayMedia`'yı desteklemediği için Apple cihazları için ayrı bir yol: beeOS'ta
+  **UxPlay** (AirPlay 2 alıcısı) sistem servisi olarak çalışır. iPhone **Kontrol Merkezi → Ekran
+  Yansıt → beeOS** seçer; birkaç saniyede görüntü + ses TV'ye akar. PIN opsiyonel (varsayılan kapalı;
+  kafe/otel gibi paylaşımlı ağda açılması önerilir). Ayrıntı ve sorun giderme için
+  [docs/airplay.md](docs/airplay.md).
+
   #### HTTPS notu
   Arka uç openssl ile kendinden imzalı sertifika üretir (`/var/lib/beeos/remote-cert.pem`). Sertifikanın
   SAN'ı cihazın her aktif IPv4 adresini içerir; IP değişince sertifika yenilenir. İlk bağlantıda tarayıcı

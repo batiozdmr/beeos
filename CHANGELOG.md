@@ -3,6 +3,33 @@
 Bu dosya [Keep a Changelog](https://keepachangelog.com/) biçimini takip eder ve [SemVer](https://semver.org/) kurallarına uyar.
 Giriş yazımı: `feat:`, `fix:`, `security:`, `perf:`, `docs:`, `chore:`.
 
+## [0.10.0] — 2026-11-10
+
+### Yeni
+- **UxPlay / AirPlay 2 alıcısı** — iPhone/iPad/Mac "Ekran Yansıt" ile beeOS'a doğrudan yayın.
+  `beeos-airplay.service` + `/etc/beeos/airplay.env` + avahi-daemon (Bonjour). Uygulamalar rafına
+  **AirPlay** kartı (talimat gösterir). Belge: [docs/airplay.md](docs/airplay.md).
+- **Bildirim merkezi** — Backend `notify()`: güncelleme çıktığında, kumanda eşleştiğinde, ekran
+  yansıtma isteği geldiğinde kalıcı not bırakır. `/api/notifications` + `/clear` + `/seen`.
+  Telefon kumandasında "Bildirim merkezi" satırı (son 50 olay, okunmamış sayacı).
+- **Haftalık imaj derlemesi (CI)** — `.github/workflows/image.yml` pazartesi 03:00 UTC'de `os/build.sh`
+  çalıştırır; artifact olarak SHA256 + boyut. `workflow_dispatch` ile manuel tetik; smoke QEMU boot
+  (warn-only). Başarısızlıkta otomatik GitHub issue.
+- **others_off ayarı** — `display_mode.othersOff`: beeOS ekrana geçince diğerlerini kapat (default)
+  ya da aç bırak (geliştirici modu). `/api/display/mode` ile değiştirilir (UI'de henüz sadece
+  endpoint).
+
+### Güvenlik
+- **IP başına başarısızlık sayacı** — Global PIN lockout'una ek: aynı IP 5 hatalı denemeden sonra
+  2 dk → 10 denemede 15 dk → 20'de 2 saat kilitli. Dağıtılmış brute-force engellenir.
+
+### Test
+- 9 yeni backend testi: IP ban (3), bildirim merkezi (4), yedekleme (2). Toplam: 45 backend testi.
+
+### Hâlâ bekleyen (0.11'e)
+`app.js` parçalama, profil/çoklu kullanıcı, ebeveyn kilidi, WebSocket cursor, hata sözlüğü, PIN
+uzunluğu (geriye uyum sorunu).
+
 ## [0.9.0] — 2026-11-10
 
 0.8.0 denetiminde (bkz. `docs/audits/0.8.0.md`) çıkan 10 yeni bulgu ve kalan iş listesinin büyük bölümü.

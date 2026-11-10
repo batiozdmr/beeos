@@ -609,11 +609,16 @@ def update_check():
     if newer and not (pkg and sha):
         log("güncelleme: %s sürümünde paket yok" % version)
     with upd_lock:
+        prev = upd.get("release") or {}
         upd["release"] = {"version": version, "available": bool(newer and pkg and sha),
                           "notes": str(rel.get("body") or "")[:1500], "size": (pkg or {}).get("size", 0),
                           "pkg": pkg, "sha": sha, "assets": assets}
         if upd["state"] == "error":
             upd.update(state="idle", error="")
+    # Yeni sürüm: bildirim merkezinde kalıcı not
+    if newer and pkg and sha and prev.get("version") != version:
+        notify("Yeni sürüm: beeOS %s" % version,
+               "Ayarlar > Güncelleme menüsünden kurabilirsin.", "info")
     return update_state()
 
 
@@ -711,6 +716,47 @@ def swap_dir(new, dest):
         if os.path.exists(prev):
             os.rename(prev, dest)
         raise
+
+
+# ---------- bildirim merkezi ----------
+# Önemli olaylar (güncelleme çıktı, kumanda eşleşti, yansıtma isteği, kanal kırıldı, hata)
+# son 50 tanesi burada tutulur; UI /api/notifications ile okur/siler.
+notifications = []          # [{id, ts, title, body, kind, seen}]
+_notif_lock = threading.Lock()
+NOTIF_MAX = 50
+
+
+def notify(title, body="", kind="info"):
+    """kind: info | warn | success | error. UI banner olarak gösterilebilir, panelde kalır."""
+    with _notif_lock:
+        n = {"id": secrets.token_hex(4), "ts": int(time.time()),
+             "title": str(title)[:120], "body": str(body or "")[:400],
+             "kind": kind if kind in ("info", "warn", "success", "error") else "info",
+             "seen": False}
+        notifications.insert(0, n)
+        del notifications[NOTIF_MAX:]
+    return n
+
+
+def notification_list(mark_seen=False):
+    with _notif_lock:
+        out = list(notifications)
+        if mark_seen:
+            for n in notifications:
+                n["seen"] = True
+    return {"ok": True, "unread": sum(1 for n in out if not n["seen"]), "items": out}
+
+
+def notification_clear(item_id=None):
+    with _notif_lock:
+        if item_id:
+            for i, n in enumerate(notifications):
+                if n["id"] == item_id:
+                    del notifications[i]
+                    break
+        else:
+            notifications[:] = []
+    return {"ok": True}
 
 
 # ---------- tanı + UI log ----------
@@ -1170,6 +1216,41 @@ def tv_proxy(h, query):
 # ---------- telefon kumandası ----------
 remote = {"enabled": True, "pin": "", "seq": 0}   # seq: başarılı eşleşme sayısı (beeOS'ta bildirim)
 fails = {"n": 0, "until": 0.0, "rounds": 0}
+# IP başına başarısızlık sayacı: brute-force dağıtılmış denemeyi engelle
+ip_fails = {}       # ip -> {"n": int, "until": float, "rounds": int}
+_ip_lock = threading.Lock()
+
+
+def _ip_check(ip):
+    """Bu IP kilitli mi? Kilitli ise kalan saniye döndür, değilse 0."""
+    with _ip_lock:
+        d = ip_fails.get(ip)
+        if not d:
+            return 0
+        now = time.time()
+        if d["until"] > now:
+            return int(d["until"] - now)
+        # Süresi dolmuş: sayacı sıfırla
+        if d["until"] and d["until"] < now - 3600:
+            del ip_fails[ip]
+        return 0
+
+
+def _ip_record_fail(ip):
+    """IP başına 5 hata → 2dk, 10 → 15dk, 20 → 2sa kilitli."""
+    with _ip_lock:
+        d = ip_fails.setdefault(ip, {"n": 0, "until": 0.0, "rounds": 0})
+        d["n"] += 1
+        if d["n"] >= 5:
+            d["rounds"] += 1
+            lock_sec = 120 if d["rounds"] == 1 else 900 if d["rounds"] == 2 else 7200
+            d["n"] = 0
+            d["until"] = time.time() + lock_sec
+
+
+def _ip_record_ok(ip):
+    with _ip_lock:
+        ip_fails.pop(ip, None)
 # Oturum anahtarları: her PIN başarılı doğrulamada id+secret üretilir. Sonraki istekler
 # X-BeeOS-Session + X-BeeOS-Sig ile imzalanır; PIN'i ağa gönderme sayısı 1'e düşer.
 sessions = {}       # id -> {"secret":bytes,"created":ts,"last":ts,"name":str}
@@ -1690,6 +1771,7 @@ def mirror_start(b, device=""):
                       ts=time.time(), last=time.time(), token=token, answerer_token=ans_token,
                       pending={"ts": time.time(), "device": device or "Bilinmeyen cihaz"},
                       device=device or "Bilinmeyen cihaz", state="pending", error="")
+    notify("Ekran yansıtma isteği", (device or "Bilinmeyen cihaz") + " paylaşmak istiyor.", "info")
     return {"ok": True, "token": token, "pending": True}
 
 
@@ -1836,6 +1918,8 @@ INTERNAL = ("eDP", "LVDS", "DSI")
 CONFIRM_SEC = 15
 disp = {"prev": None, "target": "", "timer": None, "until": 0.0, "pending": None, "failed": ""}
 disp_lock = threading.RLock()
+# others_off: ekrana geçerken diğerlerini kapat (default). false → geliştirici modu: tüm ekranlar açık kalır.
+display_mode = {"othersOff": True}
 
 
 def sway_sock():
@@ -1954,14 +2038,14 @@ def display_use(name):
             threading.Timer(1.5, lambda: swaymsg("exit")).start()
             return {"ok": True, "restarting": True}
         if o["current"] and not d.get("confirm"):
-            show_on(name, True)
+            show_on(name, display_mode["othersOff"])
             return {"ok": True}
         if not disp["timer"]:
             disp["prev"] = {"active": [x["name"] for x in d["outputs"] if x["active"]],
                             "current": next((x["name"] for x in d["outputs"] if x["current"]), None)}
         else:
             disp["timer"].cancel()
-        show_on(name, True)
+        show_on(name, display_mode["othersOff"])
         disp["target"] = name
         disp["until"] = time.time() + CONFIRM_SEC
         disp["timer"] = threading.Timer(CONFIRM_SEC + 3, display_revert)
@@ -2216,6 +2300,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 res = backup_export()
             elif method == "POST" and path == "/api/backup":
                 res = backup_import(b.get("data"))
+            elif method == "GET" and path == "/api/notifications":
+                res = notification_list(mark_seen=False)
+            elif method == "POST" and path == "/api/notifications/seen":
+                res = notification_list(mark_seen=True)
+            elif method == "POST" and path == "/api/notifications/clear":
+                res = notification_clear(b.get("id"))
+            elif method == "POST" and path == "/api/display/mode":
+                # others_off ayarı: beeOS'u taşırken diğer ekranları kapat ya da bırak
+                v = b.get("othersOff")
+                if isinstance(v, bool):
+                    display_mode["othersOff"] = v
+                res = {"ok": True, "othersOff": display_mode["othersOff"]}
             elif method == "POST" and path == "/api/time":
                 s = str(b.get("time", "")).strip()
                 if not re.fullmatch(r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?", s):
@@ -2285,17 +2381,24 @@ class RemoteHandler(http.server.BaseHTTPRequestHandler):
             send_json(self, {"ok": False, "error": "Telefon kumandası beeOS'ta kapalı"}, 403)
             return
         now = time.time()
+        client_ip = self.client_address[0] if self.client_address else ""
         # Kimlik doğrulama: önce oturum imzası, başarısızsa PIN (yalnız /api/pair ve eski istemciler için).
         sid = None
         with lock:
             if fails["until"] > now:
                 send_json(self, {"ok": False, "error": "Çok fazla hatalı PIN. Birkaç dakika bekle."}, 429)
                 return
+            # IP başına ayrı kilit: dağıtılmış brute-force'u da engeller
+            ip_left = _ip_check(client_ip)
+            if ip_left > 0:
+                send_json(self, {"ok": False, "error": "Bu cihazdan çok hatalı deneme. %d sn sonra tekrar dene." % ip_left}, 429)
+                return
             sid = session_check(self.headers, "POST", path, raw)
             if sid is None:
                 # Session yok ya da geçersiz → PIN kabul et. Yanlışsa kademeli backoff.
                 if not hmac.compare_digest(self.headers.get("X-BeeOS-PIN", ""), remote["pin"]):
                     fails["n"] += 1
+                    _ip_record_fail(client_ip)
                     if fails["n"] >= 10:
                         fails["rounds"] = fails.get("rounds", 0) + 1
                         lock_sec = 300 if fails["rounds"] == 1 else 900 if fails["rounds"] == 2 else 3600
@@ -2304,12 +2407,14 @@ class RemoteHandler(http.server.BaseHTTPRequestHandler):
                     return
             fails["n"] = 0
             fails["rounds"] = 0
+            _ip_record_ok(client_ip)
         try:
             if path == "/api/pair":
                 # PIN ile geldiyse yeni oturum döndür; session ile geldiyse sadece seq artır (yoklama).
                 if sid is None:
                     new_sid, secret = session_create(str(b.get("name", "")))
                     remote["seq"] += 1
+                    notify("Kumanda eşleşti", str(b.get("name", ""))[:48] or "Telefon", "success")
                     res = {"ok": True, "session": new_sid, "secret": secret.hex()}
                 else:
                     remote["seq"] += 1

@@ -56,7 +56,8 @@ var CONFIG = {
         { name: "YouTube Music", cat: "Müzik", sub: "Çalma listeleri", icon: "music", id: "youtube.music", web: "https://music.youtube.com", search: "https://music.youtube.com/search?q={q}", colors: ["#ff0033", "#4a0010"], desc: "YouTube Music: albümler, çalma listeleri ve resmi klipler." },
         { name: "Deezer", cat: "Müzik", sub: "Flow", icon: "music", id: "deezer", web: "https://www.deezer.com", search: "https://www.deezer.com/search/{q}", colors: ["#a238ff", "#2a0a4a"], desc: "Deezer: akıllı Flow önerisi ve yüksek kaliteli ses." },
         { name: "BBC News", cat: "Haber", sub: "İngilizce", icon: "globe", id: "beeos.bbc", web: "https://www.bbc.com/news", only: "pc", colors: ["#bb1919", "#4d0a0a"], desc: "BBC News: dünya haberleri, canlı yayınlar ve analiz." },
-        { name: "DW Türkçe", cat: "Haber", sub: "Türkçe", icon: "globe", id: "beeos.dw", web: "https://www.dw.com/tr/", only: "pc", colors: ["#002d5b", "#000f20"], desc: "Deutsche Welle Türkçe: Avrupa ve dünya gündemi." }
+        { name: "DW Türkçe", cat: "Haber", sub: "Türkçe", icon: "globe", id: "beeos.dw", web: "https://www.dw.com/tr/", only: "pc", colors: ["#002d5b", "#000f20"], desc: "Deutsche Welle Türkçe: Avrupa ve dünya gündemi." },
+        { name: "AirPlay", cat: "Giriş", sub: "iPhone/Mac", icon: "phone", id: "@airplay", only: "pc", colors: ["#007aff", "#003060"], desc: "iPhone/iPad/Mac'ten 'Ekran Yansıt' ile beeOS'a doğrudan yayın. Aynı Wi-Fi ağında olunca liste'de otomatik görünür." }
       ]
     },
     {

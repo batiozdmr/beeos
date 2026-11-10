@@ -47,6 +47,11 @@ PKGS=(
   firmware-nvidia-graphics firmware-realtek intel-microcode
   # beeOS arka ucu
   python3 python3-websocket curl ca-certificates openssl less nano
+  # AirPlay alıcısı: iPhone/iPad/Mac "Ekran Yansıt" ile beeOS'a doğrudan yayın (bkz. docs/airplay.md)
+  # Debian trixie main: uxplay + GStreamer eklentileri. Bonjour için avahi-daemon.
+  uxplay avahi-daemon
+  gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly
+  gstreamer1.0-libav gstreamer1.0-pipewire
 )
 
 if [ ! -f /work/rootfs.done ] || [ "${REBUILD:-0}" = 1 ]; then
@@ -135,7 +140,7 @@ L=/usr/lib/x86_64-linux-gnu
     ldd "$b" 2>/dev/null | awk '/=> \//{print $3}'
   done; } | xargs -r readlink -f | sort -u > /opt/beeos/preload.list
 echo "preload: $(wc -l < /opt/beeos/preload.list) dosya, $(tr '\n' '\0' < /opt/beeos/preload.list | du -cb --files0-from=- | tail -1 | cut -f1 | numfmt --to=iec)"
-systemctl enable NetworkManager beeos-backend beeos-grow.timer beeos-logdump.timer beeos-preload beeos-profile-save bluetooth >/dev/null 2>&1
+systemctl enable NetworkManager beeos-backend beeos-grow.timer beeos-logdump.timer beeos-preload beeos-profile-save bluetooth avahi-daemon beeos-airplay >/dev/null 2>&1
 systemctl mask apt-daily.timer apt-daily-upgrade.timer man-db.timer e2scrub_all.timer >/dev/null 2>&1
 systemctl set-default multi-user.target >/dev/null
 

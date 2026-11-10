@@ -1,0 +1,23 @@
+[Unit]
+Description=beeOS AirPlay Alıcı (UxPlay)
+Documentation=file:///opt/beeos/docs/airplay.md
+# avahi (Bonjour) olmazsa iPhone cihazları keşfedemez
+After=network-online.target avahi-daemon.service
+Wants=network-online.target avahi-daemon.service
+
+[Service]
+# Bee kullanıcısının Wayland oturumunda çalışır (fullscreen pencere sway'e açılır).
+User=bee
+Group=bee
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+EnvironmentFile=-/etc/beeos/airplay.env
+# -n: Bonjour adı  -nh: hostname'i ekleme  -fs: fullscreen  -async: ses/görüntü senk
+# -p: ses için PipeWire/PulseAudio sink'ine ver. Varsayılan pin kapalı; -pin=<4 hane> ile açılabilir.
+ExecStart=/usr/bin/uxplay -n ${AIRPLAY_NAME} -nh -fs -async
+Restart=on-failure
+RestartSec=3
+# Sway oturumu hazır olmadan başlarsa ekranı bulamaz; kısa bekleme
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 20); do [ -S /run/user/1000/wayland-0 ] && exit 0; sleep 1; done; exit 0'
+
+[Install]
+WantedBy=multi-user.target

@@ -234,6 +234,60 @@ class MirrorToken(unittest.TestCase):
 
 
 @_skip_if_no_bs
+class IPBan(unittest.TestCase):
+    """0.10: IP başına başarısız PIN sayacı."""
+    def test_no_ban_initially(self):
+        self.assertEqual(bs._ip_check("1.2.3.4"), 0)
+
+    def test_ban_after_5_fails(self):
+        ip = "9.9.9.9"
+        bs.ip_fails.pop(ip, None)
+        for _ in range(5):
+            bs._ip_record_fail(ip)
+        self.assertGreater(bs._ip_check(ip), 60)
+        bs._ip_record_ok(ip)   # cleanup
+
+    def test_ok_clears(self):
+        ip = "8.8.8.8"
+        bs._ip_record_fail(ip)
+        bs._ip_record_ok(ip)
+        self.assertEqual(bs._ip_check(ip), 0)
+
+
+@_skip_if_no_bs
+class Notifications(unittest.TestCase):
+    """0.10: bildirim merkezi."""
+    def test_notify_adds(self):
+        bs.notification_clear()
+        n = bs.notify("Test", "body", "info")
+        self.assertIn("id", n)
+        r = bs.notification_list()
+        self.assertEqual(len(r["items"]), 1)
+        self.assertEqual(r["unread"], 1)
+
+    def test_mark_seen(self):
+        bs.notification_clear()
+        bs.notify("x")
+        r = bs.notification_list(mark_seen=True)
+        self.assertEqual(r["unread"], 1)   # read sırasında unread hesabı seen=False iken
+        r2 = bs.notification_list()
+        self.assertEqual(r2["unread"], 0)
+
+    def test_clear_one(self):
+        bs.notification_clear()
+        n = bs.notify("a")
+        bs.notify("b")
+        bs.notification_clear(item_id=n["id"])
+        self.assertEqual(len(bs.notification_list()["items"]), 1)
+
+    def test_max_cap(self):
+        bs.notification_clear()
+        for i in range(bs.NOTIF_MAX + 10):
+            bs.notify("n%d" % i)
+        self.assertEqual(len(bs.notification_list()["items"]), bs.NOTIF_MAX)
+
+
+@_skip_if_no_bs
 class Backup(unittest.TestCase):
     def test_export_structure(self):
         r = bs.backup_export()

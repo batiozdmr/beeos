@@ -563,6 +563,11 @@
     if (item.id === "@search") { openSearch(""); return; }
     if (item.id === "@remote") { openRemote(); return; }
     if (item.id === "@tv") { openTv(); return; }
+    if (item.id === "@airplay") {
+      // AirPlay sistem servisi (beeos-airplay / UxPlay) sürekli dinler; kullanıcı telefonundan seçer
+      toast("iPhone/iPad/Mac'te Kontrol Merkezi → Ekran Yansıt → beeOS");
+      return;
+    }
     Sound.play("select");
     showLoader(item);
     launching = item;
