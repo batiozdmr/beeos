@@ -20,13 +20,17 @@ var EPG = (function () {
   }
 
   // Düz metin XMLTV'yi programs sözlüğüne çevirir. DOMParser Chromium 38'de var.
-  function parseXml(text) {
+  // Bellek koruması: sadece son 12 saat ve önümüzdeki 48 saat; büyük XMLTV'de (~10MB) parse ağır.
+  function parseXml(text, now) {
     var out = {};
     if (!text) { return out; }
     var doc;
     try { doc = new DOMParser().parseFromString(text, "text/xml"); } catch (e) { return out; }
     if (!doc) { return out; }
     var ps = doc.getElementsByTagName("programme");
+    var t = now || new Date().getTime();
+    var minT = t - 12 * 3600 * 1000;
+    var maxT = t + 48 * 3600 * 1000;
     for (var i = 0; i < ps.length; i++) {
       var p = ps[i];
       var ch = p.getAttribute("channel");
@@ -34,6 +38,8 @@ var EPG = (function () {
       var start = parseTime(p.getAttribute("start") || "");
       var stop = parseTime(p.getAttribute("stop") || "");
       if (!start || !stop || stop <= start) { continue; }
+      // Zaman penceresi dışında olanları (geçmiş veya çok ileri) atla
+      if (stop < minT || start > maxT) { continue; }
       var titleEl = p.getElementsByTagName("title")[0];
       var descEl = p.getElementsByTagName("desc")[0];
       var title = titleEl ? trim(titleEl.textContent) : "";
@@ -47,11 +53,17 @@ var EPG = (function () {
     return out;
   }
 
-  // Doğrudan dener; PC'de CORS engellenirse arka uçtaki ham-geçiş noktasını kullanır. cb(metin | null)
-  function fetchUrl(url, cb) {
+  // Doğrudan dener; PC'de CORS engellenirse arka uçtaki ham-geçiş noktasını kullanır.
+  // 3 denemeye kadar exponential backoff (2sn, 4sn, 8sn). cb(metin | null)
+  function fetchUrl(url, cb, attempt) {
+    attempt = attempt || 0;
     var pc = (typeof Platform !== "undefined") && Platform.name() === "pc" && !Platform.mock();
     var x = new XMLHttpRequest(), done = false;
-    function end(t) { if (!done) { done = true; cb(t); } }
+    function retry() {
+      if (attempt >= 2) { cb(null); return; }
+      setTimeout(function () { fetchUrl(url, cb, attempt + 1); }, (1 << attempt) * 2000);
+    }
+    function end(t) { if (!done) { done = true; if (t) { cb(t); } else { retry(); } } }
     try { x.open("GET", url, true); } catch (e) { end(null); return; }
     x.timeout = 30000;
     x.onreadystatechange = function () {

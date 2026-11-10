@@ -118,7 +118,8 @@ def pack():
                 data = data.replace(b"\r\n", b"\n")
             add(path, data, 0o755 if exe else 0o644)
     gz = io.BytesIO()
-    with gzip.GzipFile(filename="", mode="wb", fileobj=gz, mtime=0) as g:
+    # compresslevel sabit: aynı kaynak her sürümde aynı baytı üretsin (deterministic)
+    with gzip.GzipFile(filename="", mode="wb", fileobj=gz, mtime=0, compresslevel=6) as g:
         g.write(buf.getvalue())
     data = gz.getvalue()
     with open(os.path.join(OUT, name), "wb") as f:

@@ -33,7 +33,29 @@
 (function () {
   var v = document.getElementById("v"), ov = document.getElementById("overlay");
   var st = document.getElementById("status"), hn = document.getElementById("hint"), sp = document.getElementById("spin");
-  var pc = null, localIce = [], polling = true, gotOffer = false;
+  var pc = null, localIce = [], polling = true, gotOffer = false, startedAt = Date.now();
+  var OFFER_WAIT = 90000;      // offer bu süre içinde gelmezse çık
+  var muteT = null, deviceName = "";
+
+  // Hangi cihazın yayınladığını göster
+  function fetchDevice() {
+    var x = new XMLHttpRequest();
+    x.open("GET", "/api/status", true);
+    x.setRequestHeader("X-BeeOS", "1");
+    x.timeout = 4000;
+    x.onreadystatechange = function () {
+      if (x.readyState !== 4 || x.status !== 200) { return; }
+      try {
+        var r = JSON.parse(x.responseText);
+        if (r && r.mirror && r.mirror.device) {
+          deviceName = r.mirror.device;
+          if (!gotOffer) { msg("Telefon bekleniyor", deviceName + " yayını…"); }
+        }
+      } catch (e) {}
+    };
+    try { x.send(); } catch (e) {}
+  }
+  fetchDevice();
 
   function msg(s, hint, err, nospin) {
     st.textContent = s;
@@ -76,9 +98,23 @@
 
   function poll() {
     if (!polling) { return; }
+    if (!gotOffer && Date.now() - startedAt > OFFER_WAIT) {
+      msg("Zaman aşımı", "Telefondan yeniden başlat.", true, true);
+      setTimeout(exit, 2500);
+      return;
+    }
     call({}, function (r) {
       if (polling) { setTimeout(poll, gotOffer ? 1500 : 800); }
       if (!r) { return; }
+      if (r.sdp && pc && pc.signalingState !== "stable") {
+        // iceRestart için yeni offer gelebilir
+        try {
+          pc.setRemoteDescription(JSON.parse(r.sdp))
+            .then(function () { return pc.createAnswer(); })
+            .then(function (a) { return pc.setLocalDescription(a).then(function () { return a; }); })
+            .then(function (a) { call({ sdp: JSON.stringify(a) }, function () {}); });
+        } catch (e) {}
+      }
       if (!gotOffer && r.sdp) { gotOffer = true; handleOffer(r.sdp); }
       remoteIce(r.ice);
     });
@@ -90,6 +126,19 @@
     pc = new RTCPeerConnection({ iceServers: [] });
     pc.ontrack = function (e) {
       v.srcObject = e.streams[0];
+      // Ses de geliyorsa aç (telefon video+audio seçtiyse)
+      e.streams[0].getTracks().forEach(function (t) {
+        if (t.kind === "audio") { v.muted = false; }
+        t.onmute = function () {
+          // kısa muting (encoder duraklaması) toleranslı; 1.5 sn sonra overlay
+          clearTimeout(muteT);
+          muteT = setTimeout(function () { msg("Görüntü duraldı", "Bekleniyor…", false, false); }, 1500);
+        };
+        t.onunmute = function () {
+          clearTimeout(muteT); muteT = null;
+          hide();
+        };
+      });
       msg("Yayında", "", false, true);
       setTimeout(hide, 1200);
     };
@@ -98,7 +147,11 @@
     };
     pc.oniceconnectionstatechange = function () {
       var s = pc.iceConnectionState;
-      if (s === "disconnected" || s === "failed" || s === "closed") {
+      if (s === "connected" || s === "completed") {
+        hide();
+      } else if (s === "disconnected") {
+        msg("Bağlantı zayıf", "Yeniden bağlanılıyor…", false, false);
+      } else if (s === "failed" || s === "closed") {
         msg("Bağlantı koptu", "Telefondan yeniden başlat.", true, true);
       }
     };

@@ -22,8 +22,11 @@ jobs:
           for f in js/*.js os/backend/osd.js tests/*.js; do node --check "$f"; done
           for f in os/*.sh os/overlay/opt/beeos/bin/beeos-*; do bash -n "$f"; done
 
-      - name: Birim testleri
+      - name: Birim testleri (Node)
         run: node tests/run.js
+
+      - name: Birim testleri (Python backend)
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
 
       - name: Güncelleme paketi
         run: python tools/release.py pack

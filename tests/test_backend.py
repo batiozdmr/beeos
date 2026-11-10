@@ -1,0 +1,202 @@
+#!/usr/bin/env python3
+"""Backend (os/backend/beeos_server.py) için birim testleri.
+
+Ağ ve subprocess bağımlı fonksiyonlar test edilmez; saf yardımcı fonksiyonlar
+(ver_tuple, tv_url_ok, _clean_text, session_check, sleep_set) hedeflenir.
+"""
+import os
+import sys
+import tempfile
+import time
+import unittest
+
+# beeos_server.py Linux-specific (fcntl, /dev/uinput). Windows'ta geliştirme sırasında
+# tüm testler atlanır; CI (Ubuntu) üzerinde normal çalışır.
+TMP = tempfile.mkdtemp(prefix="beeos-test-")
+os.environ["BEEOS_WEB"] = TMP
+os.makedirs(os.path.join(TMP, "web"), exist_ok=True)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "os", "backend"))
+
+bs = None
+IMPORT_ERR = None
+try:
+    import beeos_server as bs  # noqa: E402
+except ImportError as e:
+    IMPORT_ERR = str(e)
+
+
+def _skip_if_no_bs(cls):
+    if bs is None:
+        cls = unittest.skip("beeos_server import edilemedi: %s" % IMPORT_ERR)(cls)
+    return cls
+
+
+@_skip_if_no_bs
+@_skip_if_no_bs
+class VerTuple(unittest.TestCase):
+    def test_basic(self):
+        self.assertEqual(bs.ver_tuple("1.2.3"), (1, 2, 3))
+
+    def test_v_prefix(self):
+        self.assertEqual(bs.ver_tuple("v0.8.0"), (0, 8, 0))
+
+    def test_invalid(self):
+        self.assertEqual(bs.ver_tuple("abc"), ())
+        self.assertEqual(bs.ver_tuple(""), ())
+
+    def test_compare(self):
+        self.assertTrue(bs.ver_tuple("0.8.0") > bs.ver_tuple("0.7.9"))
+        self.assertTrue(bs.ver_tuple("1.0.0") > bs.ver_tuple("0.9.99"))
+
+
+@_skip_if_no_bs
+@_skip_if_no_bs
+class TvUrlOk(unittest.TestCase):
+    def test_public_https(self):
+        # example.com DNS'e bağlı — ağ yoksa bu test atlanır
+        try:
+            import socket
+            socket.getaddrinfo("example.com", None)
+        except OSError:
+            self.skipTest("DNS yok")
+        self.assertTrue(bs.tv_url_ok("http://example.com"))
+
+    def test_loopback(self):
+        self.assertFalse(bs.tv_url_ok("http://127.0.0.1"))
+        self.assertFalse(bs.tv_url_ok("http://localhost"))
+
+    def test_link_local(self):
+        self.assertFalse(bs.tv_url_ok("http://169.254.1.1"))
+
+    def test_private_ranges_blocked(self):
+        # allowLan kapalı (varsayılan) → private aralıklar reddedilsin
+        self.assertFalse(bs.tv_url_ok("http://192.168.1.1"))
+        self.assertFalse(bs.tv_url_ok("http://10.0.0.1"))
+        self.assertFalse(bs.tv_url_ok("http://172.16.0.1"))
+
+    def test_bad_scheme(self):
+        self.assertFalse(bs.tv_url_ok("file:///etc/passwd"))
+        self.assertFalse(bs.tv_url_ok("ftp://example.com"))
+        self.assertFalse(bs.tv_url_ok(""))
+
+    def test_no_host(self):
+        self.assertFalse(bs.tv_url_ok("http://"))
+
+
+@_skip_if_no_bs
+@_skip_if_no_bs
+class CleanText(unittest.TestCase):
+    def test_strips_rtl_override(self):
+        # U+202E: Right-to-Left Override (Cf)
+        s = "merhaba‮ dunya"
+        out = bs._clean_text(s)
+        self.assertNotIn("‮", out)
+        self.assertIn("merhaba", out)
+        self.assertIn("dunya", out)
+
+    def test_keeps_space(self):
+        self.assertEqual(bs._clean_text("a b c"), "a b c")
+
+    def test_200_char_limit(self):
+        s = "x" * 500
+        self.assertEqual(len(bs._clean_text(s)), 200)
+
+    def test_strips_control_chars(self):
+        self.assertNotIn("\x00", bs._clean_text("a\x00b"))
+        self.assertNotIn("\x07", bs._clean_text("a\x07b"))
+
+    def test_turkish_chars(self):
+        # Türkçe karakterler korunmalı
+        self.assertEqual(bs._clean_text("ışığıöçş"), "ışığıöçş")
+
+
+@_skip_if_no_bs
+@_skip_if_no_bs
+class SessionCheck(unittest.TestCase):
+    def test_bad_sid_format(self):
+        headers = {"X-BeeOS-Session": "not-hex", "X-BeeOS-Sig": "a" * 64,
+                   "X-BeeOS-Nonce": "abcdefgh"}
+        self.assertIsNone(bs.session_check(headers, "POST", "/api/key", b""))
+
+    def test_bad_sig_format(self):
+        headers = {"X-BeeOS-Session": "a" * 32, "X-BeeOS-Sig": "zz",
+                   "X-BeeOS-Nonce": "abcdefgh"}
+        self.assertIsNone(bs.session_check(headers, "POST", "/api/key", b""))
+
+    def test_bad_nonce_format(self):
+        headers = {"X-BeeOS-Session": "a" * 32, "X-BeeOS-Sig": "f" * 64,
+                   "X-BeeOS-Nonce": "ab"}  # too short
+        self.assertIsNone(bs.session_check(headers, "POST", "/api/key", b""))
+
+    def test_unknown_session(self):
+        headers = {"X-BeeOS-Session": "a" * 32, "X-BeeOS-Sig": "f" * 64,
+                   "X-BeeOS-Nonce": "abcdefgh"}
+        self.assertIsNone(bs.session_check(headers, "POST", "/api/key", b""))
+
+    def test_missing_headers(self):
+        self.assertIsNone(bs.session_check({}, "POST", "/api/key", b""))
+
+
+@_skip_if_no_bs
+@_skip_if_no_bs
+class SleepTimer(unittest.TestCase):
+    def test_cancel(self):
+        bs.sleep_set(0)
+        r = bs.sleep_get()
+        self.assertEqual(r["left"], 0)
+        self.assertEqual(r["action"], "")
+
+    def test_set(self):
+        bs.sleep_set(30, "off")
+        r = bs.sleep_get()
+        self.assertGreater(r["left"], 29 * 60)
+        self.assertLessEqual(r["left"], 30 * 60)
+        self.assertEqual(r["action"], "off")
+        bs.sleep_set(0)  # cleanup
+
+    def test_closeapps(self):
+        bs.sleep_set(5, "closeapps")
+        self.assertEqual(bs.sleep_get()["action"], "closeapps")
+        bs.sleep_set(0)
+
+    def test_clamp(self):
+        bs.sleep_set(99999)
+        self.assertLessEqual(bs.sleep_get()["left"], 600 * 60 + 5)
+        bs.sleep_set(0)
+
+
+@_skip_if_no_bs
+@_skip_if_no_bs
+class MirrorState(unittest.TestCase):
+    def test_idle_initially(self):
+        bs.mirror_reset()
+        p = bs.mirror_pending()
+        self.assertIsNone(p["pending"])
+        self.assertEqual(p["state"], "idle")
+
+    def test_reject_signal_when_idle(self):
+        bs.mirror_reset()
+        r = bs.mirror_signal({"role": "offerer"}, {"X-BeeOS-Mirror": "whatever"})
+        self.assertFalse(r.get("ok"))
+
+    def test_start_sets_pending(self):
+        bs.mirror_reset()
+        r = bs.mirror_start({"sdp": "v=0..."}, device="Test Phone")
+        self.assertTrue(r.get("ok"))
+        self.assertTrue(r.get("pending"))
+        self.assertTrue(r.get("token"))
+        p = bs.mirror_pending()
+        self.assertEqual(p["pending"]["device"], "Test Phone")
+        self.assertEqual(p["state"], "pending")
+        bs.mirror_reset()
+
+    def test_reject_approval(self):
+        bs.mirror_reset()
+        bs.mirror_start({"sdp": "v=0..."}, device="Dev")
+        r = bs.mirror_approve(False)
+        self.assertTrue(r.get("ok"))
+        self.assertEqual(bs.mirror_pending()["state"], "idle")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

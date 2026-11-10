@@ -3,13 +3,125 @@
 Bu dosya [Keep a Changelog](https://keepachangelog.com/) biçimini takip eder ve [SemVer](https://semver.org/) kurallarına uyar.
 Giriş yazımı: `feat:`, `fix:`, `security:`, `perf:`, `docs:`, `chore:`.
 
-## [Yayımlanmadı]
-### Altyapı
-- JSDoc + `tsconfig.json` ile tip denetimi (ES5 çıktısı değişmez)
-- `tools/channels_health.py` ve haftalık CI işi
-- Rollback: `/api/update/rollback` uç noktası, UI düğmesi takibi
-- Logrotate + journal vakum systemd timer'ı
-- `LOGOS.md`, `TRADEMARKS.md`, güvenlik, imaj ve DRM notları
+## [0.8.0] — 2026-11-10
 
-## [0.7.0] — 2026-11-05
-(önceki commitler)
+### Yeni
+- **Ekran yansıtmada onay akışı**: telefon offer gönderince TV'de "`<telefon>` ekranını paylaşmak
+  istiyor" bildirimi çıkar; kullanıcı **İzin ver** / **Reddet** seçer. Alıcı sayfa (mirror.html) ancak
+  onay sonrası açılır.
+- **Mirror oturum token'ı**: `mirror_start` tek-kullanımlık token döndürür; sonraki sinyal çağrıları
+  `X-BeeOS-Mirror` başlığıyla imzalanır. Bildirim beklerken 60 sn zaman aşımı.
+- **WebRTC otomatik reconnect**: ICE koparsa `restartIce()` + yeni offer ile 2 denemeye kadar otomatik
+  yeniden bağlanma (hem telefon hem mirror.html tarafında).
+- **Mirror kalite seçimi** (Düşük 540p / Orta 720p / Yüksek 1080p) ve bitrate ayarı
+  (`RTCRtpSender.setParameters`); *Yansıtmada ses* anahtarı (telefon ekran sesini de gönderir).
+- **Fare hassasiyeti** ayarı (Yavaş / Düşük / Orta / Hızlı / Çok hızlı); kumanda sayfasında chip seçimi.
+- **Uyku zamanlayıcı** (`/api/sleep`): 1–600 dk; süre sonunda bilgisayarı kapat veya uygulamaları kapat.
+- **Saat elle ayarlama** (`/api/time`): NTP çalışmayan ağlar için `timedatectl set-time`.
+- **HTTPS sertifikası IP SAN içeriyor**: tüm aktif IPv4 adresleri SAN'a yazılır; IP değişince
+  sertifika otomatik yeniden üretilir. `remote_cert_fingerprint()` SHA-256 base64url döndürür
+  (gelecekteki QR pinning için).
+- **ETag tabanlı cache validation**: statik dosyalarda `If-None-Match` → 304, bandwidth tasarrufu.
+- **Mirror timeout + reaper thread**: pending 60 sn, waiting 60 sn, live-after-idle 30 sn — sızan
+  oturumlar otomatik temizlenir.
+- **Uinput hata sınıflandırması**: ilk hatada `modprobe uinput` dener, hatanın nedenini (modül yok /
+  yetki yok) telefona döner.
+
+### Güvenlik
+- **`/api/cursor` ve `/api/mirror/start` oturum zorunlu** — PIN tek başına artık yetmez. Böylece PIN
+  tahmini tek başına tam ekran kontrolü veremez.
+- **Minisign imzası zorunlu** (anahtar varsa): `/etc/beeos/update.pub` varsa imzasız paket reddedilir
+  (önceki sürümlerde uyarıyla atlanıyordu).
+- **SSRF daraltması**: `tv_url_ok` artık özel IP aralıklarını (10/8, 172.16/12, 192.168/16) reddeder.
+  Ev LAN'ındaki Tvheadend gibi servisler için opt-in: `/etc/beeos/remote.json` → `{"allowLan": true}`.
+- **Unicode kontrol / BiDi override filtresi**: `remote_text` artık `Cc / Cf / Co / Cs` kategorisindeki
+  karakterleri atar (U+202E vb. ile yazı manipülasyonu engelli).
+- **`STATE_DIR` kalıcı olarak `0700`**: `/var/lib/beeos` modu her start'ta garanti edilir.
+- **Mirror signal endpoint'i** aktif oturum yoksa 403 döner (role=offerer için token şart).
+
+### Düzeltme
+- **Overlay dosyaları artık iki aşamalı yazılıyor**: tüm `.beeos-new` tmp dosyaları hazırlanır, ancak
+  hepsi hazırsa toplu rename yapılır; yarım güncelleme (systemd unit'lerinin yarısı yeni) riski kalktı.
+  `overlay.prev` snapshot rollback için tutulur.
+- **`open_app` artık `mirror_lock` dışında**: DevTools 5 sn bekletmesi paralel sinyal akışını
+  dondurmuyor.
+- **`display_watch` sway soket kayıplarına karşı dayanıklı**: 3 ardışık başarısızlıkta soket
+  yeniden açılır.
+- **`remote_save` artık `fsync`'li**: crash'te geçici dosya kaybolmaz; `last` güncellemeleri 30 sn'de
+  bir throttled yazım.
+- **Sertifika SAN eşleşmezse** her boot'ta yeniden üretilir (IP değişti ise).
+- **Mirror.html** offer 90 sn gelmezse hata gösterip çıkar; ICE "disconnected" durumunda 2 sn
+  bekleyip restartIce tetikler.
+- **Çağrı sırasında ICE buffer**: telefon tarafında token gelmeden gönderilen aday mesajları
+  buffer'da bekler, token ulaşınca flush olur.
+
+### Dokümantasyon
+- `README.md`: Fare modu, Ekran yansıtma, HTTPS notu, Kumanda güvenliği, Oyun, Uyku zamanlayıcı
+  bölümleri eklendi.
+- `docs/troubleshooting.md` (yeni): kumanda HTTPS uyarısı, fare modu arızası, ekran yansıtma
+  başlamıyor, sertifika kabul, Chrome önbellek, güncelleme indirilmiyor.
+- `docs/api.md` (yeni): tüm `/api/*` endpoint tablosu (method, path, auth, body, cevap).
+
+## [0.7.4] — 2026-11-09
+
+- `beeOS 0.7.4` noktasal güncelleme (bkz. `git log v0.7.0..v0.7.4`).
+
+## [0.7.3] — 2026-11-09
+
+- `beeOS 0.7.3` noktasal güncelleme.
+
+## [0.7.2] — 2026-11-09
+
+- `beeOS 0.7.2` noktasal güncelleme.
+
+## [0.7.1] — 2026-11-09
+
+- `beeOS 0.7.1` noktasal güncelleme.
+
+## [0.7.0] — 2026-11-09
+
+### Yeni
+- **Fare modu** (ilk sürüm): telefondaki dokunmatik yüzey `/dev/uinput` üzerinden sanal fare oluşturur.
+  Tek dokunuş sol tık, iki parmak sağ tık, iki parmak kaydırma tekerlek, uzun basma sürükleme.
+- **Ekran yansıtma** (ilk sürüm): telefon ekranını WebRTC ile TV'ye aktar. Basit HTTP polling sinyali,
+  in-memory kutu. (Not: 0.8.0'da TV onay akışı eklendi.)
+- **HTTPS uzak kumanda**: `openssl req -x509` ile kendinden imzalı sertifika; `getDisplayMedia` için
+  gereken secure context sağlanır.
+- **GeForce Now** kartı (`js/config.js` içinde, yalnız PC).
+- `mirror.html` (proje kökünde): WebRTC answerer sayfası, tam ekran.
+
+## [0.6.0] — 2026-11-07
+
+### Yeni
+- **Favoriler** ve **Son açılanlar** rafları (yapay raflar, `app.js` computeModel'de hesaplanır).
+- **EPG (yayın akışı)**: `js/epg.js` ile XMLTV parse; kanal listesinde "şimdi" programı, OSD'de
+  "şimdi / sırada" + ilerleme çubuğu. `tvg-id` üstünden eşleşme; yerleşik kanalların kimlikleri
+  `js/channels.js` içinde.
+- `tests/run.js` (ilk birim testleri): Store + TV.parseM3U + EPG yardımcı fonksiyonları (17 test).
+- CI'ye `node tests/run.js` adımı eklendi.
+- Ayarlar panelinde Favoriler/Son açılanlar/EPG anahtarları, XMLTV adres alanı.
+
+## [0.5.3] — 2026-10
+
+### Düzeltme
+- PC sürümünde: arka uç `If-Modified-Since` başlığını atar; güncelleme sonrası Chrome önbelleği eski
+  arayüzü tutmuyor. (Commit `7d53d3d`, 0.8.0'da ETag ile yer değiştirdi.)
+
+## [0.5.2] — 2026-10
+
+- Canlı TV: yerleşik kanallar ve M3U liste desteği (`js/channels.js`, `js/tv.js`); `/api/tv/proxy`
+  CORS vermeyen yayınlar için.
+
+## [0.5.1] — 2026-10
+
+- Telefon kumandası (ilk sürüm), Bluetooth, açılış splash'i, daha hızlı boot.
+- Uygulama yükleme ekranı backend sekmeyi açarken görünmeye devam eder.
+
+## [0.5.0] — 2026-10
+
+- GitHub Releases üzerinden uygulama içi güncelleme, VirtualBox VM betiği, ses OSD, HDMI çıkış
+  yönetimi.
+
+## Önceki sürümler
+
+- `0.4.x` ve öncesi için `git log --oneline` ya da commit mesajları.

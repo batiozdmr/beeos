@@ -362,6 +362,89 @@ test("extra fields are merged into log record", function () {
   assert.strictEqual(rec.chan, "TRT 1");
 });
 
+// ---------- app.js saf yardımcılar (re-implement: DOM bağımlılığı atlatmak için) ----------
+// Kaynak: js/app.js — availableHere, toggleFavorite, moveItem mantığının saf hâli. app.js'teki
+// imza değişirse bu testler yakalamaz; ama regression kontrolü için temel senaryoları korur.
+section("app.js (saf yardımcılar)");
+
+function makeAvailableHere(platform) {
+  return function (it) {
+    var pc = platform === "pc";
+    if (it.only && it.only !== (pc ? "pc" : "tv")) { return false; }
+    return !pc || !!it.web || it.id.charAt(0) === "@";
+  };
+}
+
+test("availableHere: PC'de web adresi olmayan TV uygulaması gizlenir", function () {
+  var a = makeAvailableHere("pc");
+  assert.strictEqual(a({ id: "com.webos.app.hdmi1", only: "tv" }), false);
+  assert.strictEqual(a({ id: "netflix", web: "https://netflix.com" }), true);
+  assert.strictEqual(a({ id: "@settings" }), true, "@-kartlar her ortamda");
+});
+
+test("availableHere: TV'de only:pc gizlenir", function () {
+  var a = makeAvailableHere("tv");
+  assert.strictEqual(a({ id: "beeos.geforcenow", only: "pc", web: "https://x" }), false);
+  assert.strictEqual(a({ id: "netflix", web: "https://netflix.com" }), true);
+  assert.strictEqual(a({ id: "com.webos.app.hdmi1", only: "tv" }), true);
+});
+
+test("toggleFavorite: id ekler/çıkarır", function () {
+  var e = loadStore();
+  var S = e.load();
+  function toggle(id) {
+    var at = S.favorites.indexOf(id);
+    if (at >= 0) { S.favorites.splice(at, 1); }
+    else { S.favorites.push(id); }
+    e.save(S);
+    S = e.load();
+  }
+  assert.deepStrictEqual(S.favorites, []);
+  toggle("netflix");
+  assert.deepStrictEqual(S.favorites, ["netflix"]);
+  toggle("youtube");
+  assert.deepStrictEqual(S.favorites, ["netflix", "youtube"]);
+  toggle("netflix");
+  assert.deepStrictEqual(S.favorites, ["youtube"]);
+});
+
+test("Favoriler rafı order: eklenme sırasını korur", function () {
+  var e = loadStore();
+  var S = e.load();
+  S.favorites = ["a", "b", "c"];
+  e.save(S);
+  var s2 = e.load();
+  assert.deepStrictEqual(s2.favorites, ["a", "b", "c"]);
+});
+
+function makeMoveItem(order) {
+  // Verilen order dizisinde idx konumundaki öğeyi dir yönünde kaydırır; S.order'a yazılır.
+  return function (idx, dir) {
+    var to = idx + dir;
+    if (to < 0 || to >= order.length) { return order.slice(); }
+    var out = order.slice();
+    var tmp = out[idx]; out[idx] = out[to]; out[to] = tmp;
+    return out;
+  };
+}
+
+test("moveItem: sağa kaydırma yer değiştirir", function () {
+  var m = makeMoveItem(["a", "b", "c", "d"]);
+  assert.deepStrictEqual(m(1, 1), ["a", "c", "b", "d"]);
+});
+
+test("moveItem: sola kaydırma yer değiştirir", function () {
+  var m = makeMoveItem(["a", "b", "c", "d"]);
+  assert.deepStrictEqual(m(2, -1), ["a", "c", "b", "d"]);
+});
+
+test("moveItem: sınır dışında kalan hareket değişiklik yapmaz", function () {
+  var m = makeMoveItem(["a", "b"]);
+  assert.deepStrictEqual(m(0, -1), ["a", "b"]);
+  var n = makeMoveItem(["a", "b"]);
+  assert.deepStrictEqual(n(1, 1), ["a", "b"]);
+});
+
 // ---------- summary ----------
 console.log("\n" + passed + " ok, " + failed + " failed");
 if (failed > 0) { process.exit(1); }

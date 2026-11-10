@@ -490,6 +490,21 @@
             <span class="t">Titreşim<small>Tuşlara basınca hafif titreşim</small></span>
             <span class="sw" id="hapticSw"></span>
           </button>
+          <button class="item" id="mouseSpeedBtn">
+            <span class="ico"><svg class="i"><use href="#i-dpad"/></svg></span>
+            <span class="t">Fare hassasiyeti<small id="mouseSpeedSub">Orta</small></span>
+            <span class="v">›</span>
+          </button>
+          <button class="item" id="mirrorQBtn">
+            <span class="ico"><svg class="i"><use href="#i-tv"/></svg></span>
+            <span class="t">Yansıtma kalitesi<small id="mirrorQSub">Orta — 720p 2.5 Mbps</small></span>
+            <span class="v">›</span>
+          </button>
+          <button class="item" id="mirrorABtn">
+            <span class="ico"><svg class="i"><use href="#i-speaker"/></svg></span>
+            <span class="t">Yansıtmada ses<small>Telefonun sesini de gönder</small></span>
+            <span class="sw" id="mirrorASw"></span>
+          </button>
           <div class="item">
             <span class="ico"><svg class="i"><use href="#i-wifi"/></svg></span>
             <span class="t">Ağ<small id="netSub">–</small></span>
@@ -522,7 +537,8 @@
   var SESS = "beeos.remote.session";
   // Tarayıcıda denemek için: remote.html?mock (PIN 123456)
   var MOCK = /[?&]mock\b/.test(location.search);
-  var pin = "", prefs = { haptic: true, live: true, ctl: "pad" };
+  var pin = "", prefs = { haptic: true, live: true, ctl: "pad",
+                          mouseSpeed: 2.2, mirrorQuality: "mid", mirrorAudio: true };
   var session = null;       // {id: hex32, secret: Uint8Array32}
   try {
     pin = localStorage.getItem(KEY) || "";
@@ -656,7 +672,7 @@
   var stateTimer = null;
   function refresh() {
     clearTimeout(stateTimer);
-    if (!pin || document.hidden) { return; }
+    if ((!pin && !session) || document.hidden) { return; }
     call("/api/state", null, function (status, res) {
       if (status === 401) { handle(status, res); return; }
       if (status === 200 && res.ok) {
@@ -801,7 +817,8 @@
   (function () {
     var tp = $("mouse"); if (!tp) { return; }
     var dot = tp.querySelector(".dot");
-    var SPEED = 2.2;          // telefon piksel delta -> cursor delta çarpanı (hassasiyet)
+    function getSpeed() { return +prefs.mouseSpeed || 2.2; }
+    var SPEED = getSpeed();          // telefon piksel delta -> cursor delta çarpanı (hassasiyet)
     var SCROLL_STEP = 24;     // iki parmak dikey her bu kadar px için 1 tekerlek birimi
     var pts = {};             // etkin işaretçiler: id -> {x, y, sx, sy}
     var buf = { dx: 0, dy: 0, wheel: 0 };
@@ -863,6 +880,7 @@
         buf.wheel -= dy / SCROLL_STEP;
       } else {
         pos(e);
+        SPEED = getSpeed();
         buf.dx += dx * SPEED;
         buf.dy += dy * SPEED;
       }
@@ -894,7 +912,12 @@
   (function () {
     var btn = $("castBtn"); if (!btn) { return; }
     var label = $("castLabel");
-    var pc = null, stream = null, poll = null, offerIce = [], sentIce = 0, state = "idle";
+    var pc = null, stream = null, poll = null, offerIce = [], state = "idle";
+    var token = "", restartTried = 0, startedAt = 0, timeoutT = null;
+    // Kalite profilleri (yaklaşık bitrate kbps + max frame)
+    var Q = { low: { br: 800, fps: 20, h: 540 },
+              mid: { br: 2500, fps: 30, h: 720 },
+              high: { br: 5000, fps: 30, h: 1080 } };
 
     function setLabel(t) { if (label) { label.textContent = t; } }
     function setState(s) {
@@ -906,39 +929,49 @@
       var x = new XMLHttpRequest();
       x.open("POST", "/api/mirror/signal", true);
       x.setRequestHeader("Content-Type", "application/json");
-      x.setRequestHeader("X-BeeOS-PIN", pin);
+      if (token) { x.setRequestHeader("X-BeeOS-Mirror", token); }
+      // Fallback (eski oturumsuz istemciler için): oturum varsa onu da gönder
+      try {
+        if (session && crypto.subtle) {
+          // (basitlik için sadece mirror token kullanılır; session imzasını buraya eklemiyoruz)
+        } else if (pin) {
+          x.setRequestHeader("X-BeeOS-PIN", pin);
+        }
+      } catch (e) {}
       x.timeout = 8000;
       x.onreadystatechange = function () {
         if (x.readyState !== 4) { return; }
         var r = null;
         try { r = JSON.parse(x.responseText); } catch (e) {}
-        cb(x.status === 200 ? r : null);
+        cb(x.status === 200 ? r : null, x.status);
       };
-      x.ontimeout = x.onerror = function () { cb(null); };
+      x.ontimeout = x.onerror = function () { cb(null, 0); };
       body.role = "offerer";
       x.send(JSON.stringify(body));
     }
 
     function stop(reason) {
       clearInterval(poll); poll = null;
+      clearTimeout(timeoutT); timeoutT = null;
       if (pc) { try { pc.close(); } catch (e) {} pc = null; }
       if (stream) {
         try { stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
         stream = null;
       }
-      // sunucu tarafında temizle
+      // sunucu tarafında temizle — mirror token ile
       var x = new XMLHttpRequest();
       x.open("POST", "/api/mirror/stop", true);
       x.setRequestHeader("Content-Type", "application/json");
-      x.setRequestHeader("X-BeeOS-PIN", pin);
+      if (token) { x.setRequestHeader("X-BeeOS-Mirror", token); }
       try { x.send("{}"); } catch (e) {}
+      token = ""; restartTried = 0;
       setLabel("Yansıt (telefon ekranı TV'ye)");
       setState("idle");
       if (reason) { toast(reason, true); }
     }
 
     function flushIce() {
-      if (!offerIce.length) { return; }
+      if (!offerIce.length || !token) { return; }   // token yoksa buffer'da bekle
       var batch = offerIce.splice(0, offerIce.length);
       post({ ice: batch }, function (r) {
         if (r && r.ice) {
@@ -950,11 +983,12 @@
     }
 
     function pollAnswer() {
-      post({}, function (r) {
-        if (!r) { return; }
-        if (!pc) { return; }
+      post({}, function (r, st) {
+        if (st === 403) { stop("Oturum kayboldu"); return; }
+        if (!r || !pc) { return; }
         if (r.sdp && pc.signalingState !== "stable") {
           try { pc.setRemoteDescription(JSON.parse(r.sdp)); } catch (e) {}
+          if (state === "waiting") { setLabel("ICE eşleniyor…"); }
         }
         if (r.ice && r.ice.length) {
           for (var i = 0; i < r.ice.length; i++) {
@@ -964,16 +998,48 @@
       });
     }
 
+    function applyBitrate() {
+      try {
+        var q = Q[prefs.mirrorQuality] || Q.mid;
+        pc.getSenders().forEach(function (s) {
+          if (!s.track || s.track.kind !== "video") { return; }
+          var p = s.getParameters() || {};
+          p.encodings = p.encodings || [{}];
+          p.encodings[0].maxBitrate = q.br * 1000;
+          p.encodings[0].maxFramerate = q.fps;
+          try { s.setParameters(p); } catch (e) {}
+        });
+      } catch (e) {}
+    }
+
+    function restart() {
+      if (!pc || restartTried >= 2) { stop("Bağlantı yeniden kurulamadı"); return; }
+      restartTried++;
+      setLabel("Yeniden bağlanılıyor…");
+      try {
+        pc.createOffer({ iceRestart: true }).then(function (o) {
+          return pc.setLocalDescription(o).then(function () {
+            post({ sdp: JSON.stringify(o) }, function () {});
+          });
+        }).catch(function () { stop("Bağlantı koptu"); });
+      } catch (e) { stop("Bağlantı koptu"); }
+    }
+
     btn.addEventListener("click", function () {
       if (state !== "idle") { stop(); return; }
       if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
         toast("Bu tarayıcıda ekran paylaşımı yok (iOS Safari desteklemez). Android Chrome dene.", true);
         return;
       }
-      if (!pin) { toast("Önce TV'deki PIN'i gir", true); return; }
+      if (!session && !pin) { toast("Önce kumandayı eşle", true); return; }
       setLabel("Ekran seçiliyor…");
       setState("prep");
-      navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false }).then(function (s) {
+      startedAt = Date.now();
+      var q = Q[prefs.mirrorQuality] || Q.mid;
+      navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: q.fps, height: { ideal: q.h } },
+        audio: !!prefs.mirrorAudio
+      }).then(function (s) {
         stream = s;
         s.getVideoTracks()[0].onended = function () { stop("Yansıtma bitti"); };
         pc = new RTCPeerConnection({ iceServers: [] });
@@ -984,32 +1050,45 @@
         pc.oniceconnectionstatechange = function () {
           var st = pc.iceConnectionState;
           if (st === "connected" || st === "completed") {
+            restartTried = 0;
             setLabel("Yayında — durdurmak için dokun"); setState("live");
-          } else if (st === "failed" || st === "disconnected" || st === "closed") {
-            if (state !== "idle") { stop("Bağlantı koptu"); }
+            clearTimeout(timeoutT); timeoutT = null;
+            applyBitrate();
+          } else if (st === "failed") {
+            restart();
+          } else if (st === "disconnected") {
+            // kısa süreli — birkaç saniye bekle, hâlâ failed ise restartIce
+            setTimeout(function () {
+              if (pc && pc.iceConnectionState === "disconnected") { restart(); }
+            }, 2000);
+          } else if (st === "closed" && state !== "idle") {
+            stop("Bağlantı koptu");
           }
         };
         return pc.createOffer().then(function (o) { return pc.setLocalDescription(o).then(function () { return o; }); });
       }).then(function (offer) {
-        setLabel("TV'de alıcı açılıyor…");
-        // Offer'ı gönder → arka uç TV'de mirror.html'yi açar
-        var x = new XMLHttpRequest();
-        x.open("POST", "/api/mirror/start", true);
-        x.setRequestHeader("Content-Type", "application/json");
-        x.setRequestHeader("X-BeeOS-PIN", pin);
-        x.onreadystatechange = function () {
-          if (x.readyState !== 4) { return; }
-          var r = null;
-          try { r = JSON.parse(x.responseText); } catch (e) {}
-          if (x.status !== 200 || !r || r.ok === false) {
-            stop((r && r.error) || "Alıcı açılamadı");
+        setLabel("TV'de onay bekleniyor…");
+        setState("pending");
+        // Offer'ı /api/mirror/start ile gönder — artık oturum zorunlu; session varsa HMAC, yoksa PIN.
+        var reqBody = JSON.stringify({ sdp: JSON.stringify(offer) });
+        function onStart(status, res) {
+          if (status === 403 || status === 401 || !res || res.ok === false) {
+            stop((res && res.error) || "Alıcı açılamadı");
             return;
           }
-          setLabel("Bağlantı bekleniyor…");
+          if (res.token) { token = res.token; flushIce(); }
+          setLabel("TV'de izin bekleniyor…");
+          // Kullanıcının TV'de "İzin ver" demesi için 60 sn süresi
+          clearTimeout(timeoutT);
+          timeoutT = setTimeout(function () {
+            if (state !== "live") { stop("Zaman aşımı — TV'de izin verilmedi"); }
+          }, 60000);
           poll = setInterval(pollAnswer, 900);
           pollAnswer();
-        };
-        x.send(JSON.stringify({ sdp: JSON.stringify(offer) }));
+          setState("waiting");
+        }
+        // İmzalı istek gönderme imkânı için `call()` kullan
+        call("/api/mirror/start", { sdp: JSON.stringify(offer) }, onStart);
       }).catch(function (e) {
         if (e && e.name === "NotAllowedError") { stop("Paylaşım iptal edildi"); }
         else { stop("Başlatılamadı: " + (e && e.message ? e.message : e)); }
@@ -1180,6 +1259,71 @@
     $("hapticSw").classList.toggle("on", prefs.haptic);
     buzz(14);
   });
+
+  // --- Fare hassasiyeti ---
+  var SPEED_OPTS = [
+    { v: 1.2, label: "Yavaş" },
+    { v: 1.7, label: "Düşük" },
+    { v: 2.2, label: "Orta" },
+    { v: 3.0, label: "Hızlı" },
+    { v: 4.0, label: "Çok hızlı" }
+  ];
+  function updateMouseSpeedSub() {
+    var best = SPEED_OPTS[2], cur = +prefs.mouseSpeed;
+    for (var i = 0; i < SPEED_OPTS.length; i++) {
+      if (Math.abs(SPEED_OPTS[i].v - cur) < Math.abs(best.v - cur)) { best = SPEED_OPTS[i]; }
+    }
+    $("mouseSpeedSub").textContent = best.label;
+  }
+  $("mouseSpeedBtn").addEventListener("click", function () {
+    buzz(8);
+    sheet('<h3>Fare hassasiyeti</h3><p>Dokunmatik yüzeyde parmak oyunu ile ekranda cursor hareketi.</p>' +
+      '<div class="chips" id="spChips">' + SPEED_OPTS.map(function (o) {
+        var on = Math.abs(o.v - +prefs.mouseSpeed) < 0.05;
+        return '<button class="chip' + (on ? " on" : "") + '" data-v="' + o.v + '">' + o.label + '</button>';
+      }).join("") + '</div>' +
+      '<div class="sheet-btns"><button class="ghost" id="spDone">Tamam</button></div>');
+    $("spChips").addEventListener("click", function (e) {
+      var c = e.target.closest ? e.target.closest(".chip") : null;
+      if (!c) { return; }
+      buzz(6);
+      prefs.mouseSpeed = +c.getAttribute("data-v");
+      savePrefs();
+      updateMouseSpeedSub();
+      all(".chip").forEach(function (x) { x.classList.toggle("on", x === c); });
+    });
+    $("spDone").addEventListener("click", closeSheet);
+  });
+
+  // --- Yansıtma kalitesi ---
+  var MQ = { low: "Düşük — 540p ~0.8 Mbps", mid: "Orta — 720p ~2.5 Mbps", high: "Yüksek — 1080p ~5 Mbps" };
+  function updateMirrorQSub() { $("mirrorQSub").textContent = MQ[prefs.mirrorQuality] || MQ.mid; }
+  $("mirrorQBtn").addEventListener("click", function () {
+    buzz(8);
+    sheet('<h3>Yansıtma kalitesi</h3><p>Yüksek kalite daha net ama ev Wi-Fi\'sinde takılma yapabilir.</p>' +
+      '<div class="chips" id="mqChips">' + Object.keys(MQ).map(function (k) {
+        return '<button class="chip' + (prefs.mirrorQuality === k ? " on" : "") + '" data-k="' + k + '">' +
+          (k === "low" ? "Düşük" : k === "mid" ? "Orta" : "Yüksek") + '</button>';
+      }).join("") + '</div>' +
+      '<div class="sheet-btns"><button class="ghost" id="mqDone">Tamam</button></div>');
+    $("mqChips").addEventListener("click", function (e) {
+      var c = e.target.closest ? e.target.closest(".chip") : null;
+      if (!c) { return; }
+      buzz(6);
+      prefs.mirrorQuality = c.getAttribute("data-k");
+      savePrefs();
+      updateMirrorQSub();
+      all(".chip").forEach(function (x) { x.classList.toggle("on", x === c); });
+    });
+    $("mqDone").addEventListener("click", closeSheet);
+  });
+
+  $("mirrorABtn").addEventListener("click", function () {
+    prefs.mirrorAudio = !prefs.mirrorAudio;
+    savePrefs();
+    $("mirrorASw").classList.toggle("on", prefs.mirrorAudio);
+    buzz(10);
+  });
   $("unpairBtn").addEventListener("click", function () {
     sheet('<h3>Kumanda ayrılsın mı?</h3><p>Bu telefon beeOS\'u kontrol edemez. Yeniden bağlanmak için TV\'deki PIN gerekir.</p>' +
       '<div class="sheet-btns"><button class="danger-btn" id="upGo">Ayır</button><button class="ghost" id="upNo">Vazgeç</button></div>');
@@ -1267,8 +1411,9 @@
   }
 
   function unpair(text) {
-    try { localStorage.removeItem(KEY); } catch (e) {}
+    try { localStorage.removeItem(KEY); localStorage.removeItem(SESS); } catch (e) {}
     pin = "";
+    session = null;
     clearTimeout(stateTimer);
     closeSheet();
     $("pin").value = "";
@@ -1330,9 +1475,12 @@
   setCtl(prefs.ctl === "touch" || prefs.ctl === "mouse" ? prefs.ctl : "pad");
   setLive(prefs.live !== false);
   $("hapticSw").classList.toggle("on", prefs.haptic);
+  if ($("mirrorASw")) { $("mirrorASw").classList.toggle("on", prefs.mirrorAudio !== false); }
+  updateMouseSpeedSub();
+  updateMirrorQSub();
   paintRange();
   paintDigits();
-  if (pin) { start(); } else { show("pair"); }
+  if (session || pin) { start(); } else { show("pair"); }
 })();
 </script>
 </body>

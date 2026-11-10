@@ -109,6 +109,50 @@
     toastTimer = setTimeout(function () { toastEl.className = ""; }, 2600);
   }
 
+  // Ekran yansıtma onay bildirimi: bir telefon yansıtma başlattığında TV'de "İzin ver / Reddet"
+  // sorulur. Başlamadan önce kullanıcı onaylamadan mirror.html açılmaz.
+  var mirrorBanner = (function () {
+    var el = null, api = { shown: false };
+    function ensure() {
+      if (el) { return el; }
+      el = document.createElement("div");
+      el.id = "mirrorBanner";
+      el.style.cssText = "position:fixed;left:50%;top:40px;transform:translateX(-50%);z-index:999;" +
+        "background:#101520;border:1px solid #2a3344;border-radius:14px;padding:16px 20px;" +
+        "box-shadow:0 10px 30px rgba(0,0,0,.6);color:#f4f6fb;font-size:22px;font-weight:600;" +
+        "display:flex;gap:14px;align-items:center;max-width:900px";
+      document.body.appendChild(el);
+      return el;
+    }
+    api.show = function (p) {
+      ensure();
+      api.shown = true;
+      var name = (p && p.device) || "Bilinmeyen cihaz";
+      el.innerHTML = '<span style="flex:1;line-height:1.3">' +
+        '<b>' + name.replace(/[<>&]/g, "") + '</b>' +
+        '<br><span style="font-size:16px;color:#8b93a7;font-weight:400">ekranını TV\'ye yansıtmak istiyor</span></span>' +
+        '<button id="mirRej" style="background:#2a3344;color:#fff;border:0;padding:12px 20px;' +
+        'border-radius:10px;font:inherit;cursor:pointer">Reddet</button>' +
+        '<button id="mirAcc" style="background:#ffc83d;color:#1c1300;border:0;padding:12px 20px;' +
+        'border-radius:10px;font:inherit;font-weight:700;cursor:pointer">İzin ver</button>';
+      el.style.display = "flex";
+      document.getElementById("mirAcc").onclick = function () {
+        api.hide();
+        Platform.api("POST", "/api/mirror/approve", { accept: true });
+      };
+      document.getElementById("mirRej").onclick = function () {
+        api.hide();
+        Platform.api("POST", "/api/mirror/approve", { accept: false });
+        toast("Yansıtma reddedildi");
+      };
+    };
+    api.hide = function () {
+      api.shown = false;
+      if (el) { el.style.display = "none"; }
+    };
+    return api;
+  })();
+
   // ---------- webOS servis çağrısı ----------
   var pendingCalls = [];   // köprü nesneleri cevap gelene kadar canlı tutulmalı
 
@@ -1896,6 +1940,9 @@
         setNet(res.online, res.name);
         if (remoteSeq >= 0 && res.remoteSeq > remoteSeq) { Sound.play("open"); toast("Telefon kumandası bağlandı"); }
         remoteSeq = res.remoteSeq || 0;
+        // Ekran yansıtma isteği: kullanıcıya onay sor (yabancı cihazın zorla yayın göndermesini engeller)
+        if (res.mirror && !mirrorBanner.shown) { mirrorBanner.show(res.mirror); }
+        else if (!res.mirror && mirrorBanner.shown) { mirrorBanner.hide(); }
       });
     } else if (p === "tv") {
       luna("luna://com.palm.connectionmanager/getStatus", {}, function (res) {

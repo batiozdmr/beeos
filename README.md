@@ -96,12 +96,60 @@ bağlantıyı kes, unut; `bluetoothctl`) ve telefon kumandası. TV'de bu satır 
 - Açılış: GRUB menüsü gizli (açılırken **Esc** menüyü ve güvenli modu gösterir), çekirdek yazıları yerine
   beeOS açılış ekranı (plymouth, `os/overlay/usr/share/plymouth/themes/beeos`, logo `tools/make_icons.py` ile).
 - Uygulamalar arka planda açılır; sayfa yüklenene kadar beeOS'un yükleme ekranı görünür, Geri ile vazgeçilir.
-- **Telefon kumandası**: telefon aynı ağdayken `http://<PC'nin IP'si>:8081` adresini açar, TV'deki
-  **Telefon** kartında görünen 6 haneli PIN'i girer. Yön tuşları, OK, Geri, beeOS'a dön, ses, oynat/duraklat,
-  yazı gönderme (telefon klavyesinin mikrofonuyla sesle yazma). PIN `/var/lib/beeos/remote.json`'da durur;
-  10 hatalı denemede 5 dk kilitlenir. Kart üzerinden kapatılabilir, yeni PIN üretilebilir.
+- **Telefon kumandası**: telefon aynı ağdayken `https://<PC'nin IP'si>:8081` adresini açar, TV'deki
+  **Telefon** kartında görünen 6 haneli PIN'i girer.
+
+  #### Kumanda (yön tuşları / dokunmatik)
+  Yön tuşları, OK, Geri, beeOS'a dön, ses, oynat/duraklat, yazı gönderme (telefon klavyesinin
+  mikrofonuyla sesle yazma). "Dokunmatik" segmentinde parmak kaydırması yön tuşlarına çevrilir;
+  tek dokunuş OK, uzun basma menü. PIN `/var/lib/beeos/remote.json`'da durur; 10 hatalı denemede
+  5 dk kilitlenir. Kart üzerinden kapatılabilir, yeni PIN üretilebilir.
+
+  #### Fare modu (PC)
+  Kumanda sayfasındaki 3. segment — telefondaki dokunmatik yüzey, TV'de gerçek bir fare imleci hareket
+  ettirir. Arka uç `/dev/uinput` üzerinden sanal bir fare oluşturur (sway/libinput onu normal bir fare
+  olarak görür). İki parmak dokunma = sağ tık; iki parmak kaydırma = fare tekerleği; uzun basma +
+  sürükleme = sol düğme basılı tutup sürükleme. Sistem sayfasında *Fare hassasiyeti* (Yavaş / Düşük /
+  Orta / Hızlı / Çok hızlı) ayarlanır.
+
+  Gereksinimler: PC sürümü (webOS TV'de uinput yoktur), `/dev/uinput` modülü yüklü (gerekirse
+  `sudo modprobe uinput`; ilk hata alındığında arka uç bunu kendisi dener), `bee` kullanıcısı `input`
+  grubunda (build.sh bunu ayarlar).
+
+  #### Ekran yansıtma (Yansıt)
+  Telefon ekranını WebRTC ile beeOS'a aktar. Telefonda **Yansıt** düğmesine bastıktan sonra TV'de
+  "`<telefon adı>` ekranını paylaşmak istiyor" bildirimi görünür; **İzin ver** deyince mirror.html tam
+  ekran açılır. Zaman aşımı 60 sn; ICE koparsa otomatik iki kez yeniden bağlanmaya çalışır.
+
+  Gereksinimler:
+  - Android Chrome (iOS Safari `getDisplayMedia`'yı desteklemez; kart tıklanınca "ekran paylaşımı yok"
+    uyarısı çıkar).
+  - HTTPS (bkz. aşağıdaki not) — `getDisplayMedia` sadece *secure context*'te çalışır.
+  - Sistem sayfasında *Yansıtma kalitesi*: Düşük (540p ~0.8 Mbps), Orta (720p ~2.5 Mbps), Yüksek
+    (1080p ~5 Mbps). *Yansıtmada ses* anahtarı açıkken telefonun sesini de gönderir.
+
+  #### HTTPS notu
+  Arka uç openssl ile kendinden imzalı sertifika üretir (`/var/lib/beeos/remote-cert.pem`). Sertifikanın
+  SAN'ı cihazın her aktif IPv4 adresini içerir; IP değişince sertifika yenilenir. İlk bağlantıda tarayıcı
+  "güvenli değil" der; **Devam et → Yine de ziyaret et** seçin. Bir kez kabul yetlidir. (Sertifika
+  cihazdan dışarı çıkmaz.) Sorun yaşarsanız [docs/troubleshooting.md](docs/troubleshooting.md)'ye bakın.
+
+  #### Kumanda güvenliği
+  İlk eşleşme PIN iledir; sonraki istekler oturum anahtarıyla (HMAC-SHA256) imzalanır, PIN ağa tek
+  seferlik gider. `/api/cursor` (fare) ve `/api/mirror/start` (yansıtma) **oturum zorunlu** — PIN tek
+  başına yetmez. Mirror sinyalleri ayrıca başlangıçta üretilen tek-kullanımlık token ile korunur.
 - **Fotoğraflı ekran koruyucu**: flash diskin `BEEOS-LOG` bölümündeki `Fotograflar` klasörü (Windows'ta açılır,
   bölüm 64 MB) veya `/home/bee/Resimler`.
+- **Uyku zamanlayıcı**: telefon kumandası > Sistem > *Uyku zamanlayıcı* (15 / 30 / 60 / 120 dk). Süre
+  dolunca ya tüm uygulamalar kapanır ya da bilgisayar kapanır (seçime göre).
+- **Saat elle ayarlama**: NTP çalışmayan ağlarda telefon kumandası > Sistem > *Saati ayarla*
+  (`timedatectl set-time`).
+
+### Oyun (PC)
+- **GeForce Now** kartı tam ekran `play.geforcenow.com` açar. Ücretsiz / Priority / Ultimate kademeleri
+  için Nvidia hesabı gerekir; oyun kolu USB HID olarak takılı olursa Chrome ve GeForce Now otomatik
+  görür. İsteğe bağlı: Xbox Cloud Gaming, Boosteroid, now.gg kartlarını `js/config.js` içine
+  ekleyebilirsiniz.
 
 - `os/backend/beeos_server.py`  arka uç: arayüzü sunar, Chrome sekmelerini (DevTools, 127.0.0.1:9222) yönetir,
   Wi-Fi (nmcli), güç, bağlantı durumu, fotoğraflar, telefon kumandası (8081)
