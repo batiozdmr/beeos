@@ -1115,6 +1115,35 @@
           done: function () { S.onboarded = true; save(); renderRows(); }
         });
       } },
+    { group: "Profiller", label: "Aktif profil", type: "action",
+      info: function () { return S.profile || "default"; },
+      run: function () {
+        var list = (Store.list && Store.list()) || ["default"];
+        if (list.indexOf("default") < 0) { list.unshift("default"); }
+        var opts = list.map(function (n) {
+          return { label: n + (n === S.profile ? " ✓" : ""),
+                   run: function () { S = Store.use(n); applySettings(); renderRows(); toast("Profil: " + n); } };
+        });
+        opts.push({ label: "Kapat", run: function () {} });
+        showMenu("Profil seç", opts);
+      } },
+    { label: "Profil ekle", type: "action",
+      info: function () { return "Çocuk / misafir için ayrı favoriler"; },
+      run: function () {
+        var v = window.prompt ? window.prompt("Profil adı (harf/rakam)") : null;
+        if (!v) { return; }
+        var n = Store.create(v);
+        if (!n) { toast("Geçersiz ad"); return; }
+        S = Store.use(n); applySettings(); renderRows(); toast("Yeni profil: " + n);
+      } },
+    { label: "Profili sil", type: "action", confirm: true, danger: true,
+      info: function () { return (S.profile && S.profile !== "default") ? S.profile : "Default silinmez"; },
+      run: function () {
+        if (!S.profile || S.profile === "default") { toast("Default profil silinemez"); return; }
+        var name = S.profile;
+        Store.remove(name);
+        S = Store.use("default"); applySettings(); renderRows(); toast(name + " silindi");
+      } },
     { group: "Ebeveyn kilidi", label: "Ebeveyn PIN'i", type: "action",
       info: function () { return S.parentalPin ? "4 haneli" : "Kapalı"; },
       run: function () {

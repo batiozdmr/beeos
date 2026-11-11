@@ -1762,14 +1762,27 @@ uinput_mouse = UInputMouse()
 
 
 def remote_cursor(b):
-    def num(k, lo, hi):
-        v = b.get(k, 0)
+    def num(v, lo, hi):
         try: v = int(v)
         except (TypeError, ValueError): v = 0
         return max(lo, min(hi, v))
-    ok = uinput_mouse.do(num("dx", -300, 300), num("dy", -300, 300),
-                         b.get("click"), b.get("down"), b.get("up"),
-                         num("wheel", -15, 15))
+    # Batch: {"events": [{dx,dy,wheel,click,down,up}, ...]} ile birden fazla olay tek istekte gönderilir.
+    # Telefonun fare hareketi ~60 Hz; batch sayesinde HTTP istek sayısı 4-6x azalır (pil / TLS handshake).
+    events = b.get("events")
+    if isinstance(events, list):
+        ok = True
+        for ev in events[:60]:      # istek başına en çok 60 olay
+            if not isinstance(ev, dict):
+                continue
+            if not uinput_mouse.do(num(ev.get("dx", 0), -300, 300),
+                                   num(ev.get("dy", 0), -300, 300),
+                                   ev.get("click"), ev.get("down"), ev.get("up"),
+                                   num(ev.get("wheel", 0), -15, 15)):
+                ok = False; break
+    else:
+        ok = uinput_mouse.do(num(b.get("dx", 0), -300, 300), num(b.get("dy", 0), -300, 300),
+                             b.get("click"), b.get("down"), b.get("up"),
+                             num(b.get("wheel", 0), -15, 15))
     if ok:
         return {"ok": True}
     return {"ok": False, "error": UInputMouse.last_error or "Fare açılamadı (uinput)"}
@@ -2195,6 +2208,35 @@ def display_watch():
 
 
 # ---------- HTTP ----------
+# Tek nokta hata metin sözlüğü: endpoint yolundan kullanıcı-dostu mesaj + hata kodu üretir.
+# Konsolda "İşlem yapılamadı" yerine ne denendiği net görünsün.
+_FRIENDLY_MAP = (
+    ("/api/launch", "Uygulama açılamadı", "launch_failed"),
+    ("/api/wifi", "Wi-Fi işlemi başarısız", "wifi_failed"),
+    ("/api/bt", "Bluetooth işlemi başarısız", "bt_failed"),
+    ("/api/mirror", "Ekran yansıtma başarısız", "mirror_failed"),
+    ("/api/cursor", "Fare işlemi başarısız", "cursor_failed"),
+    ("/api/key", "Tuş işlemi gönderilemedi", "key_failed"),
+    ("/api/text", "Yazı gönderilemedi", "text_failed"),
+    ("/api/volume", "Ses düzeyi değiştirilemedi", "volume_failed"),
+    ("/api/display", "Ekran değiştirilemedi", "display_failed"),
+    ("/api/update", "Güncelleme işlemi başarısız", "update_failed"),
+    ("/api/backup", "Yedekleme işlemi başarısız", "backup_failed"),
+    ("/api/power", "Güç işlemi başarısız", "power_failed"),
+    ("/api/pair", "Eşleşme başarısız", "pair_failed"),
+)
+
+
+def _friendly_error(path, exc=None):
+    for prefix, msg, code in _FRIENDLY_MAP:
+        if path.startswith(prefix):
+            d = {"ok": False, "error": msg, "code": code}
+            if exc is not None:
+                d["detail"] = type(exc).__name__   # kullanıcıya göstermek için değil, log/diag için
+            return d
+    return {"ok": False, "error": "İşlem tamamlanamadı", "code": "generic_failed"}
+
+
 def send_json(h, obj, code=200):
     body = json.dumps(obj).encode("utf-8")
     h.send_response(code)
@@ -2411,7 +2453,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return True
         except Exception as e:  # Chrome henüz açılmamış olabilir vb.
             log("api error", path, repr(e))
-            res = {"ok": False, "error": "İşlem yapılamadı"}
+            res = _friendly_error(path, e)
         send_json(self, res)
         return True
 
@@ -2539,7 +2581,7 @@ class RemoteHandler(http.server.BaseHTTPRequestHandler):
                 return
         except Exception as e:
             log("remote error", path, repr(e))
-            res = {"ok": False, "error": "İşlem yapılamadı"}
+            res = _friendly_error(path, e)
         send_json(self, res)
 
 

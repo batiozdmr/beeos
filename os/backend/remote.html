@@ -890,6 +890,8 @@
     var SCROLL_STEP = 24;     // iki parmak dikey her bu kadar px için 1 tekerlek birimi
     var pts = {};             // etkin işaretçiler: id -> {x, y, sx, sy}
     var buf = { dx: 0, dy: 0, wheel: 0 };
+    // Batch: 120ms'de bir en fazla 20 olayı tek istekte yolla (pil ve TLS handshake maliyeti azalır)
+    var batch = [];           // kuyruk: {dx,dy,wheel,click,down,up}
     var startMs = 0, moved = false, buttonDown = false, holdT = null, flushT = null;
 
     function pos(e) {
@@ -900,21 +902,33 @@
 
     function schedule() {
       if (flushT) { return; }
-      flushT = setTimeout(flush, 16);   // ~60Hz
+      flushT = setTimeout(flush, 120);   // 120ms batch — ~8Hz istek, hareket akıcı kalır
+    }
+    function queueMove() {
+      if (!buf.dx && !buf.dy && !buf.wheel) { return; }
+      batch.push({ dx: Math.round(buf.dx), dy: Math.round(buf.dy), wheel: Math.round(buf.wheel) });
+      buf.dx = 0; buf.dy = 0; buf.wheel = 0;
     }
     function flush() {
       flushT = null;
-      if (!buf.dx && !buf.dy && !buf.wheel) { return; }
-      var body = { dx: Math.round(buf.dx), dy: Math.round(buf.dy), wheel: Math.round(buf.wheel) };
-      buf.dx = 0; buf.dy = 0; buf.wheel = 0;
-      // Fare olayları sırası önemli değil, kuyruktan atılabilir
-      send("/api/cursor", body, null, true);
+      queueMove();
+      if (!batch.length) { return; }
+      var events = batch.splice(0, 20);     // en fazla 20 olay/istek
+      send("/api/cursor", { events: events }, null, true);
+      if (batch.length) { schedule(); }     // kalanlar sonraki tura
     }
-    function click(which) { send("/api/cursor", { click: which }, null, true); }
+    function click(which) {
+      // Tıklamayı batch'in sonuna ekle (sıra önemli: önce hareket, sonra tık)
+      queueMove();
+      batch.push({ click: which });
+      flush();
+    }
     function setDown(b) {
       if (b === buttonDown) { return; }
       buttonDown = b;
-      send("/api/cursor", b ? { down: "left" } : { up: "left" }, null, true);
+      queueMove();
+      batch.push(b ? { down: "left" } : { up: "left" });
+      flush();
     }
 
     function nPts() { var n = 0; for (var k in pts) { if (pts.hasOwnProperty(k)) { n++; } } return n; }

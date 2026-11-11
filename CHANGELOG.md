@@ -3,6 +3,22 @@
 Bu dosya [Keep a Changelog](https://keepachangelog.com/) biçimini takip eder ve [SemVer](https://semver.org/) kurallarına uyar.
 Giriş yazımı: `feat:`, `fix:`, `security:`, `perf:`, `docs:`, `chore:`.
 
+## [0.13.0] — 2026-11-11
+
+### Yeni
+- **Çoklu profil** — `Store.list/use/create/remove`. Favoriler, gizli kartlar, sıra, kullanım ve
+  son açılanlar profil başına ayrı tutulur. Ayarlar > **Aktif profil / Profil ekle / Profili sil**.
+  Default profil her zaman mevcut; silinemez. Örnek: `cocuk` profiliyle farklı favoriler + farklı
+  ebeveyn PIN davranışı.
+- **Fare olayları batch** — Telefondan gelen cursor olayları 120 ms'de bir toplu yollanır
+  (`events: [...]`). ~60 Hz → ~8 Hz istek; pil ve TLS handshake maliyeti belirgin azaldı. Backend
+  tek istekte en çok 60 olay işler, sıra korunur (önce hareket, sonra tıklama).
+
+### Düzeltme
+- **Hata mesajı sözlüğü (backend)** — Generic "İşlem yapılamadı" yerine endpoint bağlamına göre
+  anlaşılır mesaj + hata kodu (`launch_failed`, `wifi_failed`, `bt_failed`, `mirror_failed`,
+  `cursor_failed`, `update_failed`, vb.). `_friendly_error()` tek kaynak.
+
 ## [0.12.0] — 2026-11-11
 
 ### Yeni

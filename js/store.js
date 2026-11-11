@@ -42,6 +42,21 @@ var Store = (function () {
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
+  // Profil: bazı alanlar profil başına değişir (favoriler, gizli kartlar, sıra, kullanım geçmişi).
+  // "default" + opsiyonel "cocuk" vs. localStorage içinde ayrı yapıda tutulur.
+  var PROF_KEYS = ["favorites", "hidden", "order", "usage", "lastOpen"];
+  var PROFILES = "beeos.profiles.v1", ACTIVE = "beeos.activeProfile.v1";
+
+  function loadProfiles() {
+    try { return JSON.parse(localStorage.getItem(PROFILES) || "{}") || {}; }
+    catch (e) { return {}; }
+  }
+  function saveProfiles(p) { try { localStorage.setItem(PROFILES, JSON.stringify(p)); } catch (e) {} }
+  function activeName() {
+    try { return localStorage.getItem(ACTIVE) || "default"; } catch (e) { return "default"; }
+  }
+  function setActive(n) { try { localStorage.setItem(ACTIVE, n); } catch (e) {} }
+
   function load() {
     var s = clone(DEFAULTS);
     try {
@@ -53,11 +68,33 @@ var Store = (function () {
         }
       }
     } catch (e) {}
+    // Profil slice'ını aktive edilmiş profilden oku (varsa) — favoriler vs. profil başına
+    var name = activeName();
+    var profs = loadProfiles();
+    var p = profs[name];
+    if (p) {
+      for (var i = 0; i < PROF_KEYS.length; i++) {
+        var pk = PROF_KEYS[i];
+        if (p.hasOwnProperty(pk)) { s[pk] = p[pk]; }
+      }
+    }
+    s.profile = name;
+    s.profileList = Object.keys(profs).length ? Object.keys(profs) : ["default"];
     return s;
   }
 
   function save(s) {
     try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {}
+    // Profil slice'ını da güncelle
+    var name = s.profile || activeName();
+    var profs = loadProfiles();
+    var slice = profs[name] || {};
+    for (var i = 0; i < PROF_KEYS.length; i++) {
+      var pk = PROF_KEYS[i];
+      if (s[pk] != null) { slice[pk] = s[pk]; }
+    }
+    profs[name] = slice;
+    saveProfiles(profs);
   }
 
   function reset() {
@@ -65,5 +102,31 @@ var Store = (function () {
     return clone(DEFAULTS);
   }
 
-  return { load: load, save: save, reset: reset };
+  function listProfiles() { return Object.keys(loadProfiles()); }
+
+  function switchProfile(name) {
+    name = String(name || "default").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32) || "default";
+    setActive(name);
+    return load();
+  }
+
+  function createProfile(name) {
+    name = String(name || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32);
+    if (!name) { return null; }
+    var profs = loadProfiles();
+    if (!profs[name]) { profs[name] = { favorites: [], hidden: [], order: {}, usage: {}, lastOpen: {} }; saveProfiles(profs); }
+    return name;
+  }
+
+  function deleteProfile(name) {
+    if (!name || name === "default") { return false; }
+    var profs = loadProfiles();
+    delete profs[name];
+    saveProfiles(profs);
+    if (activeName() === name) { setActive("default"); }
+    return true;
+  }
+
+  return { load: load, save: save, reset: reset,
+           list: listProfiles, use: switchProfile, create: createProfile, remove: deleteProfile };
 })();
