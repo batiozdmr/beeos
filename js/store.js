@@ -104,18 +104,44 @@ var Store = (function () {
 
   function listProfiles() { return Object.keys(loadProfiles()); }
 
+  // Profil adı ekranda görünen ad: Türkçe harfler serbest; kontrol karakterleri ve baş/son boşluk atılır.
+  function cleanName(n) {
+    return String(n || "").replace(/[\u0000-\u001f\u007f]/g, "").replace(/^\s+|\s+$/g, "").slice(0, 20);
+  }
+
   function switchProfile(name) {
-    name = String(name || "default").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32) || "default";
+    name = cleanName(name) || "default";
     setActive(name);
     return load();
   }
 
   function createProfile(name) {
-    name = String(name || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32);
-    if (!name) { return null; }
+    name = cleanName(name);
+    if (!name || name === "default" || name.toLowerCase() === "varsayılan") { return null; }
     var profs = loadProfiles();
     if (!profs[name]) { profs[name] = { favorites: [], hidden: [], order: {}, usage: {}, lastOpen: {} }; saveProfiles(profs); }
     return name;
+  }
+
+  // Yedekleme: tüm arayüz durumu (ayarlar + profiller + aktif profil) tek nesne
+  function exportAll() {
+    var o = { v: 1 };
+    try {
+      o.settings = JSON.parse(localStorage.getItem(KEY) || "{}");
+      o.profiles = loadProfiles();
+      o.active = activeName();
+    } catch (e) {}
+    return o;
+  }
+
+  function importAll(o) {
+    if (!o || typeof o !== "object" || typeof o.settings !== "object") { return false; }
+    try {
+      localStorage.setItem(KEY, JSON.stringify(o.settings));
+      if (o.profiles && typeof o.profiles === "object") { saveProfiles(o.profiles); }
+      if (o.active) { setActive(cleanName(o.active) || "default"); }
+      return true;
+    } catch (e) { return false; }
   }
 
   function deleteProfile(name) {
@@ -128,5 +154,6 @@ var Store = (function () {
   }
 
   return { load: load, save: save, reset: reset,
-           list: listProfiles, use: switchProfile, create: createProfile, remove: deleteProfile };
+           list: listProfiles, use: switchProfile, create: createProfile, remove: deleteProfile,
+           exportAll: exportAll, importAll: importAll };
 })();

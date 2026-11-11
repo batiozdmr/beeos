@@ -70,7 +70,30 @@
     return dec.map(function (d) { return d.x; });
   }
 
-  function save() { Store.save(S); }
+  // PC'de arayüz ayarları arka uca da yazılır: yedek dışa aktarma bunları içersin.
+  var syncTimer = null;
+  function save() {
+    Store.save(S);
+    if (Platform.name() !== "pc" || Platform.mock() || !Store.exportAll) { return; }
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(function () {
+      Platform.api("POST", "/api/uistate", { state: Store.exportAll() }, function () {});
+    }, 2000);
+  }
+
+  // Telefondan içe aktarılan yedek: arka uçtaki arayüz durumunu localStorage'a yaz, yeniden yükle
+  var restoring = false;
+  function applyRestore() {
+    if (restoring || !Store.importAll) { return; }
+    restoring = true;
+    Platform.api("GET", "/api/uistate", null, function (res) {
+      if (res && res.ok && res.state && Store.importAll(res.state)) {
+        Platform.api("POST", "/api/uistate/restored", {}, function () { location.reload(); });
+      } else {
+        restoring = false;
+      }
+    });
+  }
 
   function pad(n) { return n < 10 ? "0" + n : "" + n; }
 
@@ -108,50 +131,6 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { toastEl.className = ""; }, 2600);
   }
-
-  // Ekran yansıtma onay bildirimi: bir telefon yansıtma başlattığında TV'de "İzin ver / Reddet"
-  // sorulur. Başlamadan önce kullanıcı onaylamadan mirror.html açılmaz.
-  var mirrorBanner = (function () {
-    var el = null, api = { shown: false };
-    function ensure() {
-      if (el) { return el; }
-      el = document.createElement("div");
-      el.id = "mirrorBanner";
-      el.style.cssText = "position:fixed;left:50%;top:40px;transform:translateX(-50%);z-index:999;" +
-        "background:#101520;border:1px solid #2a3344;border-radius:14px;padding:16px 20px;" +
-        "box-shadow:0 10px 30px rgba(0,0,0,.6);color:#f4f6fb;font-size:22px;font-weight:600;" +
-        "display:flex;gap:14px;align-items:center;max-width:900px";
-      document.body.appendChild(el);
-      return el;
-    }
-    api.show = function (p) {
-      ensure();
-      api.shown = true;
-      var name = (p && p.device) || "Bilinmeyen cihaz";
-      el.innerHTML = '<span style="flex:1;line-height:1.3">' +
-        '<b>' + name.replace(/[<>&]/g, "") + '</b>' +
-        '<br><span style="font-size:16px;color:#8b93a7;font-weight:400">ekranını TV\'ye yansıtmak istiyor</span></span>' +
-        '<button id="mirRej" style="background:#2a3344;color:#fff;border:0;padding:12px 20px;' +
-        'border-radius:10px;font:inherit;cursor:pointer">Reddet</button>' +
-        '<button id="mirAcc" style="background:#ffc83d;color:#1c1300;border:0;padding:12px 20px;' +
-        'border-radius:10px;font:inherit;font-weight:700;cursor:pointer">İzin ver</button>';
-      el.style.display = "flex";
-      document.getElementById("mirAcc").onclick = function () {
-        api.hide();
-        Platform.api("POST", "/api/mirror/approve", { accept: true });
-      };
-      document.getElementById("mirRej").onclick = function () {
-        api.hide();
-        Platform.api("POST", "/api/mirror/approve", { accept: false });
-        toast("Yansıtma reddedildi");
-      };
-    };
-    api.hide = function () {
-      api.shown = false;
-      if (el) { el.style.display = "none"; }
-    };
-    return api;
-  })();
 
   // ---------- webOS servis çağrısı ----------
   var pendingCalls = [];   // köprü nesneleri cevap gelene kadar canlı tutulmalı
@@ -256,7 +235,8 @@
       pool.sort(function (a, b) { return b.t - a.t; });
       var max = S.recentMax || 7;
       var recents = pool.slice(0, max).map(function (p) { return p.it; });
-      if (recents.length) { out.push({ title: "Son açılanlar", size: "small", items: recents, synth: "recent" }); }
+      // 1-2 kartlık raf ekranda yer kaplar ama bir şey kazandırmaz (son açılan zaten hero'da "Devam et")
+      if (recents.length >= 3) { out.push({ title: "Son açılanlar", size: "small", items: recents, synth: "recent" }); }
     }
     for (var r = 0; r < defs.length; r++) {
       var def = defs[r];
@@ -679,38 +659,198 @@
   function toggleLock(item) {
     if (!S.locked) { S.locked = []; }
     var i = S.locked.indexOf(item.id);
-    if (i >= 0) { S.locked.splice(i, 1); toast(item.name + " PIN'siz açılacak"); }
-    else { S.locked.push(item.id); toast(item.name + " artık PIN ister"); }
+    if (i >= 0) {
+      // Kilidi kaldırmak PIN ister (çocuk menüden kilidi açamasın)
+      askPin("PIN", item.name + " kilidi kaldırılacak", function (ok) {
+        if (!ok) { return; }
+        S.locked.splice(S.locked.indexOf(item.id), 1);
+        save();
+        toast(item.name + " artık PIN'siz açılır");
+      });
+      return;
+    }
+    S.locked.push(item.id);
     save();
+    toast(item.name + " artık PIN ister");
   }
 
-  // Basit PIN girişi — kart açılmadan önce
+  // Kart açılmadan önce PIN
   function askParentalPin(name, onOk) {
-    showMenu("PIN gerekiyor — " + name, [
-      { label: "0", run: noop }, { label: "1", run: noop }, { label: "2", run: noop },
-      { label: "3", run: noop }, { label: "4", run: noop }, { label: "5", run: noop },
-      { label: "6", run: noop }, { label: "7", run: noop }, { label: "8", run: noop },
-      { label: "9", run: noop }, { label: "Vazgeç", run: function () {} }
-    ]);
-    // Küçük basit PIN girişi: doğrudan prompt'u dpad OSK üzerinde yapmak uzun — prompt() kullan
-    // (webOS'ta prompt destekli; kullanıcı fiziksel klavye/dpad ile girer)
-    setTimeout(function () {
-      var v = window.prompt ? window.prompt("PIN (" + name + " için)") : null;
-      closeMenuIfOpen();
-      if (v && String(v).replace(/\D/g, "") === String(S.parentalPin)) { onOk(); }
-      else if (v != null) { toast("PIN yanlış"); Sound.play("error"); }
-    }, 50);
-    function noop() {}
+    askPin("PIN gerekli", name + " kilitli", function (ok) { if (ok) { onOk(); } });
   }
 
-  function closeMenuIfOpen() {
-    if (mode === "menu") { mode = "home"; stage.classList.remove("menu-open"); }
+  // ---------- katmanlar (overlay) ----------
+  // Sihirbaz, PIN tuş takımı ve yansıtma onayı tüm tuşları alır; arkadaki ana ekrana tuş sızmaz.
+  // o: { el, key(k) -> bool, char(ch) }. Katmanlar üst üste binebilir (PIN, sihirbazın üstünde).
+  var overlays = [], overlayBack = "home";
+
+  function openOverlay(o) {
+    pressCancel();
+    if (!overlays.length) { overlayBack = mode === "overlay" ? "home" : mode; }
+    overlays.push(o);
+    if (o.el && !o.el.parentNode) { stage.appendChild(o.el); }
+    mode = "overlay";
+    return o;
+  }
+
+  function closeOverlay(o) {
+    var i = overlays.indexOf(o);
+    if (i < 0) { return; }
+    overlays.splice(i, 1);
+    if (o.el && o.el.parentNode) { o.el.parentNode.removeChild(o.el); }
+    if (!overlays.length && mode === "overlay") { mode = overlayBack; }
+  }
+
+  function topOverlay() { return overlays[overlays.length - 1] || null; }
+
+  // ---------- PIN tuş takımı (kumanda, rakam tuşları ve fare ile) ----------
+  // opt: { title, sub, onDone(pin) -> true kapat | false salla ve temizle, onCancel() }
+  function openPinPad(opt) {
+    var KEYS = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["back", "0", "del"]];
+    var LABEL = { back: "Vazgeç", del: "Sil" };
+    var r = 0, c = 0, pin = "";
+    var el = div("ovl pinpad");
+    el.innerHTML = '<div class="pp-box"><div class="pp-title"></div><div class="pp-sub"></div>' +
+      '<div class="pp-dots"><i></i><i></i><i></i><i></i></div><div class="pp-keys"></div></div>';
+    el.querySelector(".pp-title").textContent = opt.title || "PIN";
+    el.querySelector(".pp-sub").textContent = opt.sub || "";
+    var keysEl = el.querySelector(".pp-keys"), cells = [];
+    KEYS.forEach(function (row, ri) {
+      var line = div("pp-row");
+      cells.push([]);
+      row.forEach(function (k, ci) {
+        var b = div("pp-key" + (k.length > 1 ? " wide" : ""), LABEL[k] || k);
+        b.addEventListener("click", function () { r = ri; c = ci; paint(); press(k); });
+        line.appendChild(b);
+        cells[ri].push(b);
+      });
+      keysEl.appendChild(line);
+    });
+    var me;
+    function paint() {
+      for (var i = 0; i < cells.length; i++) {
+        for (var j = 0; j < cells[i].length; j++) { setCls(cells[i][j], "sel", i === r && j === c); }
+      }
+      var dots = el.querySelectorAll(".pp-dots i");
+      for (var d = 0; d < dots.length; d++) { setCls(dots[d], "on", d < pin.length); }
+    }
+    function finish() {
+      if (opt.onDone(pin) === false) {
+        pin = "";
+        var box = el.querySelector(".pp-box");
+        box.classList.remove("shake"); void box.offsetWidth; box.classList.add("shake");
+        el.querySelector(".pp-sub").textContent = opt.wrong || "PIN yanlış, tekrar dene";
+        paint();
+        return;
+      }
+      closeOverlay(me);
+    }
+    function press(k) {
+      if (k === "back") { Sound.play("close"); closeOverlay(me); if (opt.onCancel) { opt.onCancel(); } return; }
+      if (k === "del") { pin = pin.slice(0, -1); Sound.play("move"); paint(); return; }
+      if (pin.length >= 4) { return; }
+      pin += k;
+      Sound.play("move");
+      paint();
+      if (pin.length === 4) { setTimeout(finish, 120); }
+    }
+    me = openOverlay({ el: el,
+      key: function (k) {
+        if (k === 37) { c = Math.max(0, c - 1); }
+        else if (k === 39) { c = Math.min(2, c + 1); }
+        else if (k === 38) { r = Math.max(0, r - 1); }
+        else if (k === 40) { r = Math.min(3, r + 1); }
+        else if (k === 13) { press(KEYS[r][c]); return true; }
+        else if (k >= 48 && k <= 57) { press(String(k - 48)); return true; }
+        else if (k >= 96 && k <= 105) { press(String(k - 96)); return true; }
+        else if (k === 8) { if (pin) { press("del"); } else { press("back"); } return true; }
+        else if (k === 461 || k === 27) { press("back"); return true; }
+        else { return true; }    // diğer tuşlar yutulur
+        Sound.play("move");
+        paint();
+        return true;
+      } });
+    paint();
+  }
+
+  // ---------- ekran yansıtma onayı ----------
+  // Telefon yansıtma başlatınca arka uç beeOS'u öne alır ve bu soruyu hemen gönderir.
+  var mirrorAsk = null;
+  function showMirrorAsk(p) {
+    if (mirrorAsk) { return; }
+    if (mode === "boot" || mode === "loading" || mode === "osk") { return; }   // bir sonraki yoklamada
+    var sel = 1;   // varsayılan: İzin ver
+    var el = div("ovl mirrorask");
+    el.innerHTML = '<div class="ma-box"><div class="ma-title">Ekran yansıtma isteği</div>' +
+      '<div class="ma-sub"></div><div class="ma-btns"><div class="ma-btn" data-i="0">Reddet</div>' +
+      '<div class="ma-btn primary" data-i="1">İzin ver</div></div></div>';
+    el.querySelector(".ma-sub").textContent = ((p && p.device) || "Bir cihaz") + " ekranını TV'ye yansıtmak istiyor.";
+    var btns = el.querySelectorAll(".ma-btn");
+    function paint() { for (var i = 0; i < btns.length; i++) { setCls(btns[i], "sel", i === sel); } }
+    function answer(accept) {
+      closeOverlay(mirrorAsk);
+      mirrorAsk = null;
+      Sound.play(accept ? "select" : "close");
+      Platform.api("POST", "/api/mirror/approve", { accept: accept }, function (res) {
+        if (!res || res.ok === false) { toast((res && res.error) || "Yansıtma başlatılamadı"); }
+      });
+      if (!accept) { toast("Yansıtma reddedildi"); }
+    }
+    for (var i = 0; i < btns.length; i++) {
+      (function (b, idx) { b.addEventListener("click", function () { answer(idx === 1); }); })(btns[i], i);
+    }
+    Sound.play("open");
+    mirrorAsk = openOverlay({ el: el,
+      key: function (k) {
+        if (k === 37) { sel = 0; Sound.play("move"); }
+        else if (k === 39) { sel = 1; Sound.play("move"); }
+        else if (k === 13) { answer(sel === 1); return true; }
+        else if (k === 461 || k === 27 || k === 8) { answer(false); return true; }
+        paint();
+        return true;
+      } });
+    paint();
+  }
+  function hideMirrorAsk() {
+    if (!mirrorAsk) { return; }
+    closeOverlay(mirrorAsk);
+    mirrorAsk = null;
+  }
+
+  // ---------- karşılama sihirbazı ----------
+  function startOnboarding() {
+    if (typeof Onboarding === "undefined") { return; }
+    var ctl = Onboarding.start({
+      platform: Platform.name(),
+      store: S,
+      catalog: CONFIG.rows,
+      available: availableHere,
+      api: Platform.mock() || Platform.name() === "pc" ? Platform.api : null,
+      qr: typeof QR !== "undefined" ? QR : null,
+      sound: function (s) { Sound.play(s); },
+      askText: function (o, cb) {
+        showOsk({ title: o.title, text: o.text, max: o.max, placeholder: o.placeholder, onDone: cb });
+      },
+      done: function () {
+        S.onboarded = true;
+        save();
+        applySettings();
+        renderRows();
+        tick();
+        closeOverlay(ctl);
+        if (S.userName) { toast("Hoş geldin, " + S.userName); }
+      }
+    });
+    openOverlay(ctl);
   }
 
   // Ortada açılan seçim listesi. opts: [{ label, run }]
+  // Menü ayarlar panelinden de açılabilir: kapanınca tuşlar açıldığı katmana geri dönsün.
+  var menuBack = "home";
   function showMenu(title, opts) {
     pressCancel();
     Sound.play("open");
+    if (mode !== "menu") { menuBack = mode; }
     menuOpts = opts;
     menuIdx = 0;
     $("menuTitle").textContent = title;
@@ -763,7 +903,8 @@
   }
 
   function closeMenu() {
-    mode = "home";
+    mode = menuBack === "panel" || menuBack === "overlay" ? menuBack : "home";
+    menuBack = "home";
     stage.classList.remove("menu-open");
   }
 
@@ -1103,62 +1244,118 @@
       info: function () { return S.favorites.length ? S.favorites.length + " favori" : "Yok"; },
       run: function () { if (!S.favorites.length) { return; } S.favorites = []; save(); renderRows(); toast("Favoriler temizlendi"); } },
     { label: "Tüm ayarları sıfırla", type: "action", confirm: true, danger: true,
-      run: function () { S = Store.reset(); applySettings(); renderRows(); toast("Tüm ayarlar sıfırlandı"); } },
-    { group: "Karşılama", label: "Karşılama sihirbazını tekrar göster", type: "action",
-      info: function () { return "Hoş geldin + favori seçimi"; },
+      run: function () { S = Store.reset(); applySettings(); renderRows(); toast("Tüm ayarlar sıfırlandı"); } }
+  ];
+
+  // Aile (profil + ebeveyn kilidi) ve karşılama satırları "Sıfırlama"dan önce yer alır
+  var FAMILY_ROWS = [
+    { group: "Aile", label: "Profil", type: "action",
+      info: function () { return profileLabel(S.profile); },
+      run: function () { chooseProfile(); } },
+    { label: "Yeni profil ekle", type: "action",
+      info: function () { return "Örn. Çocuk: ayrı favoriler ve sıralama"; },
       run: function () {
-        if (typeof Onboarding === "undefined") { toast("Sihirbaz yüklenmemiş"); return; }
-        closePanel();
-        Onboarding.start(Platform.name() || "pc", {
-          store: S,
-          saveSettings: function () { save(); applySettings(); renderRows(); },
-          done: function () { S.onboarded = true; save(); renderRows(); }
-        });
+        showOsk({ title: "Profil adı", max: 20, placeholder: "Örn. Çocuk",
+          onDone: function (v) {
+            var n = Store.create(v);
+            if (!n) { Sound.play("error"); toast("Bu adla profil oluşturulamadı"); return; }
+            S = Store.use(n); applySettings(); renderRows(); renderPanel();
+            toast("Profil: " + profileLabel(n));
+          } });
       } },
-    { group: "Profiller", label: "Aktif profil", type: "action",
-      info: function () { return S.profile || "default"; },
+    { label: "Bu profili sil", type: "action", confirm: true, danger: true,
+      only: function () { return S.profile && S.profile !== "default"; },
+      info: function () { return profileLabel(S.profile); },
       run: function () {
-        var list = (Store.list && Store.list()) || ["default"];
-        if (list.indexOf("default") < 0) { list.unshift("default"); }
-        var opts = list.map(function (n) {
-          return { label: n + (n === S.profile ? " ✓" : ""),
-                   run: function () { S = Store.use(n); applySettings(); renderRows(); toast("Profil: " + n); } };
-        });
-        opts.push({ label: "Kapat", run: function () {} });
-        showMenu("Profil seç", opts);
-      } },
-    { label: "Profil ekle", type: "action",
-      info: function () { return "Çocuk / misafir için ayrı favoriler"; },
-      run: function () {
-        var v = window.prompt ? window.prompt("Profil adı (harf/rakam)") : null;
-        if (!v) { return; }
-        var n = Store.create(v);
-        if (!n) { toast("Geçersiz ad"); return; }
-        S = Store.use(n); applySettings(); renderRows(); toast("Yeni profil: " + n);
-      } },
-    { label: "Profili sil", type: "action", confirm: true, danger: true,
-      info: function () { return (S.profile && S.profile !== "default") ? S.profile : "Default silinmez"; },
-      run: function () {
-        if (!S.profile || S.profile === "default") { toast("Default profil silinemez"); return; }
         var name = S.profile;
         Store.remove(name);
-        S = Store.use("default"); applySettings(); renderRows(); toast(name + " silindi");
+        S = Store.use("default"); applySettings(); renderRows(); renderPanel();
+        toast(profileLabel(name) + " silindi");
       } },
-    { group: "Ebeveyn kilidi", label: "Ebeveyn PIN'i", type: "action",
-      info: function () { return S.parentalPin ? "4 haneli" : "Kapalı"; },
-      run: function () {
-        var v = window.prompt ? window.prompt(S.parentalPin ? "Yeni PIN (boş = kapat)" : "4 haneli PIN") : null;
-        if (v == null) { return; }
-        v = String(v).replace(/\D/g, "").slice(0, 4);
-        if (v === "") { S.parentalPin = ""; S.locked = []; toast("Ebeveyn kilidi kapatıldı"); }
-        else if (v.length < 4) { toast("4 hane gerekli"); return; }
-        else { S.parentalPin = v; toast("PIN ayarlandı"); }
-        save();
-      } },
-    { label: "Kilitli kart sayısı", type: "action",
-      info: function () { return (S.locked || []).length + ""; },
-      run: function () { toast("Kart menüsünden PIN iste/isteme açılır"); } }
+    { label: "Ebeveyn kilidi", type: "action",
+      info: function () {
+        if (!S.parentalPin) { return "Kapalı"; }
+        var n = (S.locked || []).length;
+        return "Açık · " + (n ? n + " kilitli kart" : "kilitli kart yok");
+      },
+      run: function () { parentalSettings(); } },
+    { group: "Karşılama", label: "Karşılama sihirbazını tekrar göster", type: "action",
+      info: function () { return "Ad, telefon kumandası, favoriler"; },
+      run: function () { closePanel(); startOnboarding(); } }
   ];
+  (function () {
+    var at = 0;
+    for (var i = 0; i < PANEL.length; i++) { if (PANEL[i].group === "Sıfırlama") { at = i; break; } }
+    Array.prototype.splice.apply(PANEL, [at, 0].concat(FAMILY_ROWS));
+  })();
+
+  function profileLabel(n) { return !n || n === "default" ? "Varsayılan" : n; }
+
+  function chooseProfile() {
+    var list = Store.list ? Store.list() : [];
+    if (list.indexOf("default") < 0) { list.unshift("default"); }
+    var opts = list.map(function (n) {
+      return { label: profileLabel(n) + (n === S.profile ? "  ✓" : ""),
+               run: function () {
+                 if (n === S.profile) { return; }
+                 S = Store.use(n); applySettings(); renderRows();
+                 if (mode === "panel") { renderPanel(); }
+                 toast("Profil: " + profileLabel(n));
+               } };
+    });
+    opts.push({ label: "Vazgeç", run: function () {} });
+    showMenu("Profil seç", opts);
+  }
+
+  // Ebeveyn kilidi: PIN tanımla / değiştir / kapat. Mevcut PIN her değişiklikte sorulur.
+  function parentalSettings() {
+    if (!S.parentalPin) {
+      askNewPin(function (pin) { S.parentalPin = pin; save(); renderPanel(); toast("Ebeveyn kilidi açıldı. Kart menüsünden kart kilitle."); });
+      return;
+    }
+    showMenu("Ebeveyn kilidi", [
+      { label: "PIN'i değiştir", run: function () {
+        askPin("Mevcut PIN", "", function (ok) {
+          if (!ok) { return; }
+          askNewPin(function (pin) { S.parentalPin = pin; save(); renderPanel(); toast("PIN değişti"); });
+        });
+      } },
+      { label: "Ebeveyn kilidini kapat", run: function () {
+        askPin("Mevcut PIN", "Kilit kapanınca tüm kartlar PIN'siz açılır", function (ok) {
+          if (!ok) { return; }
+          S.parentalPin = ""; S.locked = []; save(); renderPanel(); toast("Ebeveyn kilidi kapatıldı");
+        });
+      } },
+      { label: "Vazgeç", run: function () {} }
+    ]);
+  }
+
+  function askNewPin(cb) {
+    openPinPad({ title: "Yeni 4 haneli PIN", sub: "Kilitli kartlar bu PIN ile açılır",
+      onDone: function (a) {
+        setTimeout(function () {
+          openPinPad({ title: "PIN'i tekrar gir", sub: "Doğrulamak için aynı PIN'i gir",
+            wrong: "Aynı PIN değil, tekrar dene",
+            onDone: function (b) {
+              if (a !== b) { Sound.play("error"); return false; }
+              cb(a);
+              return true;
+            } });
+        }, 0);
+        return true;
+      } });
+  }
+
+  // Doğrulama: cb(true) doğru PIN; cb(false) vazgeçildi
+  function askPin(title, sub, cb) {
+    openPinPad({ title: title, sub: sub,
+      onDone: function (pin) {
+        if (pin !== S.parentalPin) { Sound.play("error"); return false; }
+        cb(true);
+        return true;
+      },
+      onCancel: function () { cb(false); } });
+  }
   // Panel bir "görünüm" gösterir: { head (HTML), sub, foot, rows, back }. Satır tanımları:
   //   { key, values, names }  S[key] değerini döndürür   { type: "text", get, set, next, secret }  ekran klavyesi
   //   { type: "action", run, info, confirm, danger, big } group: satırdan önceki bölüm başlığı
@@ -1201,7 +1398,10 @@
   function settingsView() {
     var pc = Platform.name() === "pc";
     return { head: "<b>bee</b>OS Ayarları", settings: true,
-             rows: PANEL.filter(function (o) { return !o.only || (o.only === "pc") === pc; }),
+             rows: PANEL.filter(function (o) {
+               if (typeof o.only === "function") { return o.only(); }
+               return !o.only || (o.only === "pc") === pc;
+             }),
              sub: "Yukarı/aşağı: seç · Sağ/sol veya OK: değiştir · Geri: kapat",
              foot: "beeOS " + VERSION + "  ·  " + (pc
                ? "F1: ayarlar  ·  Home / Windows tuşu: beeOS'a dön"
@@ -1582,15 +1782,15 @@
     if (r && r.enabled && r.urls && r.urls.length && typeof QR !== "undefined") {
       // URL'yi doğrudan QR'a yazıyoruz; phone kamerası onu açınca HTTPS remote URL + fingerprint hash ile
       // doğrudan remote.html gelir. Fingerprint pinning: phone cert'in değişip değişmediğini anlar (MITM).
-      var url = r.urls[0];
-      if (r.fingerprint) { url += "#fp=" + r.fingerprint; }
+      // # sonrası sunucuya gitmez: telefon PIN'i buradan okuyup kendiliğinden eşleşir
+      var url = r.urls[0] + "#pin=" + r.pin + (r.fingerprint ? "&fp=" + r.fingerprint : "");
       try {
         qrHtml = '<img class="pqr" alt="QR kod" src="' + QR.toDataUri(url, 240) + '">';
       } catch (e) { qrHtml = ""; }
     }
     return withBack({
       head: "Telefon kumandası", remote: true,
-      sub: "Telefonda adresi aç, PIN'i gir. Telefon aynı ağda olmalı.",
+      sub: "QR'ı telefonun kamerasıyla okut, kendiliğinden bağlanır. Ya da adresi açıp PIN'i yaz. Telefon aynı ağda olmalı.",
       foot: "Telefondaki yazı alanında klavyenin mikrofonuyla sesle arama yapabilirsin.",
       rows: [
         { group: "Bağlantı", label: "Telefon kumandası", type: "action",
@@ -1601,7 +1801,7 @@
         { label: "PIN", type: "action", run: noop, big: true,
           info: function () { return r ? r.pin.replace(/^(\d{3})(\d{3})$/, "$1 $2") : "…"; } },
         { label: "QR ile eşle", type: "action", run: noop, html: qrHtml,
-          info: function () { return qrHtml ? "Telefonun kamerasına tut" : "Önce kumandayı aç"; } },
+          info: function () { return qrHtml ? "Okutunca PIN gerekmez" : "Önce kumandayı aç"; } },
         { group: "Güvenlik", label: "Yeni PIN üret", type: "action", confirm: true,
           info: function () { return "Telefonlar yeniden PIN ister"; },
           run: function () { loadRemote({ newPin: true }); } }
@@ -2047,9 +2247,11 @@
         setNet(res.online, res.name);
         if (remoteSeq >= 0 && res.remoteSeq > remoteSeq) { Sound.play("open"); toast("Telefon kumandası bağlandı"); }
         remoteSeq = res.remoteSeq || 0;
-        // Ekran yansıtma isteği: kullanıcıya onay sor (yabancı cihazın zorla yayın göndermesini engeller)
-        if (res.mirror && !mirrorBanner.shown) { mirrorBanner.show(res.mirror); }
-        else if (!res.mirror && mirrorBanner.shown) { mirrorBanner.hide(); }
+        // Ekran yansıtma isteği: kullanıcıya onay sor (yabancı cihazın zorla yayın göndermesini engeller).
+        // Asıl tetik kumanda komutuyla anında gelir; bu yoklama yedek.
+        if (res.mirror) { showMirrorAsk(res.mirror); } else { hideMirrorAsk(); }
+        // Yedekten geri yükleme: arayüz ayarlarını arka uçtan al, sayfayı yenile
+        if (res.restore) { applyRestore(); }
       });
     } else if (p === "tv") {
       luna("luna://com.palm.connectionmanager/getStatus", {}, function (res) {
@@ -2254,8 +2456,9 @@
       return;
     }
     if (mode === "saver") { hideSaver(); e.preventDefault(); return; }
+    var ov = topOverlay();
     var handled = mode === "tv" ? TV.key(k) : mode === "osk" ? oskKey(k) : mode === "panel" ? panelKey(k) :
-                  mode === "menu" ? menuKey(k) : homeKey(k);
+                  mode === "menu" ? menuKey(k) : mode === "overlay" ? (ov ? ov.key(k) : true) : homeKey(k);
     if (handled) { e.preventDefault(); }
   }
 
@@ -2266,6 +2469,11 @@
     if (!code || code < 32) { return; }
     var ch = String.fromCharCode(code);
     if (mode === "osk") { oskInsert(ch, true); e.preventDefault(); }
+    else if (mode === "overlay") {
+      var ov = topOverlay();
+      if (ov && ov.char) { ov.char(ch); }
+      e.preventDefault();
+    }
     else if (mode === "home" && !pressing && SEARCH_CHAR.test(ch)) { openSearch(ch); e.preventDefault(); }
   }
 
@@ -2351,6 +2559,10 @@
   }
 
   function runRemote(c) {
+    if (c.type === "mirror") { if (mode === "saver") { hideSaver(); } showMirrorAsk(c); return; }
+    if (c.type === "mirror-cancel") { hideMirrorAsk(); return; }
+    if (c.type === "restore") { applyRestore(); return; }
+    if (mode === "overlay") { return; }    // sihirbaz / PIN açıkken kumandadan uygulama açılmasın
     var item = findItem(c.id);
     if (!item) { return; }
     resetIdle();
@@ -2418,19 +2630,13 @@
   // İlk açılış sihirbazı: Store.onboarded false iken başlar (TV/PC/web otomatik)
   function maybeOnboard() {
     if (S.onboarded || typeof Onboarding === "undefined") { return; }
-    // Boot animasyonunun bitmesini bekle — kullanıcı önce logoyu görsün
-    setTimeout(function () {
-      Onboarding.start(Platform.name() || "pc", {
-        store: S,
-        saveSettings: function () { save(); applySettings(); renderRows(); },
-        done: function () {
-          S.onboarded = true;
-          save();
-          renderRows();
-          if (S.userName) { toast("Hoş geldin " + S.userName); }
-        }
-      });
-    }, 2600);
+    // Açılış animasyonu bitince başla (logo görünsün, tuşlar animasyonu atlamasın)
+    function go() {
+      if (mode === "boot") { setTimeout(go, 200); return; }
+      if (S.onboarded || mode === "overlay") { return; }
+      startOnboarding();
+    }
+    go();
   }
   // Ortam belli olunca (PC arka ucu cevap verirse) raflar o ortama göre yeniden çizilir
   Platform.detect(function () {
@@ -2453,5 +2659,6 @@
 
   // Hata ayıklama için (ares-inspect konsolundan): __launcher.openPanel() vb.
   window.__launcher = { openPanel: openPanel, showSaver: showSaver, openSearch: openSearch,
+                        onboarding: startOnboarding, mirrorAsk: showMirrorAsk, remoteCmd: runRemote,
                         settings: function () { return S; } };
 })();

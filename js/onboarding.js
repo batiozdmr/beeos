@@ -1,372 +1,361 @@
-// İlk açılış sihirbazı: yeni cihazda kullanıcıyı kısa adımlarla yönlendirir.
-// Store.onboarded = true oluncaya kadar başlar. ES5 (webOS Chromium 38 uyumlu).
-// Kullanım: Onboarding.start(platform, callbacks) — platform "pc" | "tv" | "web".
-//   callbacks: { done: fn, launchCard: fn(id), openWifi: fn, openRemote: fn }
+// İlk açılış sihirbazı. ES5 (webOS Chromium 38): grid/gap/inset kullanılmaz, stil css/style.css'te.
+// Sahnenin (#stage, 1920x1080, ekrana göre ölçeklenir) içine yerleşir; tüm tuşları app.js katman
+// (overlay) düzeniyle alır, arkadaki ana ekrana tuş sızmaz.
+//
+// Onboarding.start(host) -> { el, key(keyCode) -> bool, char(ch) }
+// host: { platform, store, catalog, available(item), api(method, path, body, cb) | null, qr,
+//         sound(name), askText({title, text, max, placeholder}, cb(text)), done() }
 var Onboarding = (function () {
-  var cur = 0, steps = [], root = null, cbs = null, plat = "pc";
-  var popularIds = ["youtube.leanback.v4", "netflix", "amazon",
-                    "com.disney.disneyplus-prod", "spotify-beehive"];
+  var POPULAR = ["youtube.leanback.v4", "netflix", "amazon", "com.disney.disneyplus-prod",
+                 "spotify-beehive", "com.webos.app.browser"];
+  var BEE = '<svg viewBox="0 0 80 92" width="150" height="172"><defs><linearGradient id="onbG" x1="0" y1="0" x2="0" y2="1">' +
+    '<stop offset="0" stop-color="#ffd65a"/><stop offset="1" stop-color="#ff9f1a"/></linearGradient></defs>' +
+    '<polygon points="40,3 77,24.5 77,67.5 40,89 3,67.5 3,24.5" fill="url(#onbG)"/>' +
+    '<ellipse cx="31" cy="38" rx="10" ry="6.5" fill="#fff" opacity="0.9" transform="rotate(-28 31 38)"/>' +
+    '<ellipse cx="49" cy="38" rx="10" ry="6.5" fill="#fff" opacity="0.9" transform="rotate(28 49 38)"/>' +
+    '<ellipse cx="40" cy="55" rx="11" ry="15" fill="#1a1200"/>' +
+    '<rect x="29.5" y="50" width="21" height="3.6" fill="#ffc83d"/>' +
+    '<rect x="30.5" y="58" width="19" height="3.6" fill="#ffc83d"/></svg>';
 
-  function el(tag, cls, html) {
+  function mk(tag, cls, text) {
     var e = document.createElement(tag);
     if (cls) { e.className = cls; }
-    if (html != null) { e.innerHTML = html; }
+    if (text != null) { e.textContent = text; }
     return e;
   }
-  function esc(s) {
-    return String(s).replace(/[&<>"]/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
-    });
-  }
+  function setCls(el, c, on) { if (on) { el.classList.add(c); } else { el.classList.remove(c); } }
 
-  function injectStyle() {
-    if (document.getElementById("onbStyle")) { return; }
-    var css =
-      "#onb{position:fixed;inset:0;z-index:9000;background:radial-gradient(120% 60% at 50% -10%," +
-      "rgba(255,176,40,.16),transparent 60%),#07090f;color:#f4f6fb;display:flex;" +
-      "flex-direction:column;overflow:hidden;font-family:inherit}" +
-      "#onb.hide{opacity:0;pointer-events:none;transition:opacity .4s}" +
-      "#onbHead{display:flex;align-items:center;gap:12px;padding:28px 44px}" +
-      "#onbHead .b{font-size:22px;font-weight:300;letter-spacing:-.01em}" +
-      "#onbHead .b b{color:#ffc83d;font-weight:800}" +
-      "#onbDots{margin-left:auto;display:flex;gap:8px}" +
-      "#onbDots .d{width:10px;height:10px;border-radius:50%;background:#2a3344}" +
-      "#onbDots .d.on{background:#ffc83d}" +
-      "#onbBody{flex:1;display:flex;align-items:center;justify-content:center;padding:0 48px}" +
-      ".onb-step{display:none;max-width:900px;width:100%;text-align:center;animation:onbIn .35s ease-out}" +
-      ".onb-step.on{display:block}" +
-      "@keyframes onbIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}" +
-      ".onb-step h1{font-size:64px;font-weight:300;letter-spacing:-.03em;margin:0 0 22px;line-height:1.05}" +
-      ".onb-step h1 b{color:#ffc83d;font-weight:800}" +
-      ".onb-step p{font-size:24px;color:#8b93a7;line-height:1.5;margin:0 auto 36px;max-width:640px}" +
-      ".onb-step .big{font-size:160px;line-height:1;margin:10px 0 24px;filter:drop-shadow(0 20px 60px rgba(255,170,30,.4))}" +
-      ".onb-input{width:min(440px,90%);height:72px;padding:0 24px;border-radius:18px;background:#10141e;" +
-      "border:2px solid #2a3344;color:#fff;font-size:26px;text-align:center;outline:none;margin:0 auto 32px;display:block}" +
-      ".onb-input:focus{border-color:#ffc83d}" +
-      ".onb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;" +
-      "max-width:760px;margin:0 auto 32px}" +
-      ".onb-card{position:relative;padding:18px 14px;border-radius:18px;border:2px solid #2a3344;" +
-      "background:#10141e;cursor:pointer;transition:transform .12s,border-color .12s;font-size:18px;font-weight:600}" +
-      ".onb-card:hover,.onb-card.focus{border-color:#ffc83d;transform:translateY(-3px)}" +
-      ".onb-card.on{border-color:#ffc83d;background:rgba(255,200,61,.1)}" +
-      ".onb-card .ch{position:absolute;top:10px;right:10px;width:24px;height:24px;border-radius:50%;" +
-      "background:#ffc83d;color:#1c1300;display:none;align-items:center;justify-content:center;font-weight:800;font-size:16px}" +
-      ".onb-card.on .ch{display:flex}" +
-      ".onb-qr{display:inline-flex;flex-direction:column;align-items:center;gap:14px;" +
-      "padding:22px;border-radius:22px;background:#fff;color:#000}" +
-      ".onb-qr img{width:240px;height:240px;display:block}" +
-      ".onb-qr .url{font-size:16px;font-weight:600;color:#333}" +
-      ".onb-row{display:flex;gap:28px;align-items:center;justify-content:center;flex-wrap:wrap;margin:10px 0 32px}" +
-      ".onb-kbd{display:inline-grid;grid-template-columns:auto 1fr;column-gap:16px;row-gap:12px;" +
-      "max-width:560px;margin:0 auto 32px;text-align:left;font-size:20px}" +
-      ".onb-kbd .k{background:#10141e;border:1px solid #2a3344;border-radius:10px;padding:8px 14px;" +
-      "font-weight:600;color:#ffc83d;text-align:center;min-width:120px}" +
-      ".onb-kbd .v{color:#c7cdda;line-height:1.5}" +
-      "#onbFoot{display:flex;gap:16px;justify-content:center;padding:28px 44px 48px}" +
-      ".onb-btn{height:64px;padding:0 36px;border-radius:18px;border:0;font:inherit;font-size:20px;" +
-      "font-weight:700;cursor:pointer;transition:transform .08s,filter .12s}" +
-      ".onb-btn:active{transform:scale(.97)}" +
-      ".onb-btn.primary{background:linear-gradient(180deg,#ffd65a,#ff9f1a);color:#1c1300;" +
-      "box-shadow:0 10px 28px rgba(255,160,30,.35)}" +
-      ".onb-btn.primary:hover{filter:brightness(1.05)}" +
-      ".onb-btn.ghost{background:#1a2030;color:#c7cdda;border:1px solid #2a3344}" +
-      ".onb-btn.ghost:hover{background:#242b3f}" +
-      ".onb-net{display:inline-flex;align-items:center;gap:12px;padding:12px 22px;border-radius:99px;" +
-      "background:#10141e;border:1px solid #2a3344;font-size:17px;margin-bottom:28px}" +
-      ".onb-net i{width:10px;height:10px;border-radius:50%;background:#5b6377}" +
-      ".onb-net.on i{background:#3ddc84;box-shadow:0 0 0 4px rgba(61,220,132,.2)}" +
-      ".onb-net.off i{background:#ff5f5f;box-shadow:0 0 0 4px rgba(255,95,95,.2)}" +
-      "@media (max-width:900px){.onb-step h1{font-size:40px}.onb-step p{font-size:18px}" +
-      ".onb-step .big{font-size:120px}}";
-    var s = el("style");
-    s.id = "onbStyle";
-    s.appendChild(document.createTextNode(css));
-    document.head.appendChild(s);
-  }
-
-  function build(S) {
-    injectStyle();
-    root = el("div");
-    root.id = "onb";
-    var header = el("div", null); header.id = "onbHead";
-    header.appendChild(el("span", "b", 'beeOS\'a hoş geldin'));
-    var dots = el("div"); dots.id = "onbDots";
-    header.appendChild(dots);
-    var body = el("div"); body.id = "onbBody";
-    var foot = el("div"); foot.id = "onbFoot";
-
-    root.appendChild(header);
+  function start(host) {
+    var S = host.store, pc = host.platform === "pc";
+    var root = mk("div", "ovl onb");
+    var top = mk("div", "onb-top");
+    top.innerHTML = '<div class="onb-brand"><b>bee</b>OS</div><div class="onb-count"></div>' +
+                    '<div class="onb-bar"><i></i></div>';
+    var body = mk("div", "onb-body");
+    var foot = mk("div", "onb-foot");
+    root.appendChild(top);
     root.appendChild(body);
     root.appendChild(foot);
-    document.body.appendChild(root);
 
-    // Adımlar: PC'de 6, TV'de 5 (Wi-Fi atlanır — TV kendi ayarları ile bağlanır)
-    steps = [
-      welcomeStep(),
-      nameStep(S),
-      plat === "pc" ? wifiStep() : null,
-      remoteStep(S),
-      favoritesStep(S),
-      finishStep()
-    ];
-    steps = steps.filter(function (x) { return x; });
+    var steps = [welcome, name];
+    if (pc) { steps.push(network, phone); }     // TV kendi ağ ayarını kullanır; telefon kumandası PC'de
+    steps.push(favorites, finish);
 
-    for (var i = 0; i < steps.length; i++) {
-      body.appendChild(steps[i].el);
-      var d = el("div", "d");
-      dots.appendChild(d);
+    var cur = -1, step = null, grid = [], fr = 0, fc = 0, pollT = null;
+
+    // ---- odak (kumanda) ----
+    function focusable(el, act) {
+      el.className += " onb-f";
+      el.__act = act;
+      el.addEventListener("click", function () {
+        for (var r = 0; r < grid.length; r++) {
+          var c = grid[r].indexOf(el);
+          if (c >= 0) { fr = r; fc = c; }
+        }
+        paint();
+        act();
+      });
+      return el;
     }
-
-    showStep(0);
-  }
-
-  function showStep(i) {
-    cur = Math.max(0, Math.min(steps.length - 1, i));
-    for (var k = 0; k < steps.length; k++) {
-      steps[k].el.classList.toggle("on", k === cur);
-    }
-    var dots = document.getElementById("onbDots").children;
-    for (var k2 = 0; k2 < dots.length; k2++) {
-      dots[k2].className = "d" + (k2 === cur ? " on" : "");
-    }
-    renderFoot();
-    try { steps[cur].enter && steps[cur].enter(); } catch (e) {}
-  }
-
-  function renderFoot() {
-    var foot = document.getElementById("onbFoot");
-    foot.innerHTML = "";
-    var st = steps[cur];
-    if (cur > 0 && !st.hideBack) {
-      var back = el("button", "onb-btn ghost", "‹ Geri");
-      back.onclick = function () { showStep(cur - 1); };
-      foot.appendChild(back);
-    }
-    if (st.optional && cur < steps.length - 1) {
-      var skip = el("button", "onb-btn ghost", "Atla");
-      skip.onclick = function () { showStep(cur + 1); };
-      foot.appendChild(skip);
-    }
-    var nextLabel = cur === steps.length - 1 ? "Başla ›" : "Devam ›";
-    if (st.nextLabel) { nextLabel = st.nextLabel; }
-    var next = el("button", "onb-btn primary", nextLabel);
-    next.onclick = function () {
-      try { st.before && st.before(); } catch (e) {}
-      if (cur === steps.length - 1) { finish(); } else { showStep(cur + 1); }
-    };
-    foot.appendChild(next);
-    try { next.focus(); } catch (e) {}
-  }
-
-  // --- Adım 1: Hoş geldin ---
-  function welcomeStep() {
-    var s = el("div", "onb-step");
-    s.innerHTML =
-      '<div class="big">🐝</div>' +
-      '<h1>beeOS\'a hoş geldin</h1>' +
-      '<p>Favori uygulamaların tek ekranda, telefonun kumanda. Birkaç adımda hazır olalım.</p>';
-    return { el: s, hideBack: true };
-  }
-
-  // --- Adım 2: İsim (opsiyonel) ---
-  function nameStep(S) {
-    var s = el("div", "onb-step");
-    s.innerHTML =
-      '<h1>Seni nasıl çağıralım?</h1>' +
-      '<p>Adın ana ekranda "Günaydın Ahmet" gibi karşılama yazısında görünür. İstersen boş bırak.</p>' +
-      '<input class="onb-input" id="onbName" placeholder="Adın (opsiyonel)" maxlength="40">';
-    return {
-      el: s,
-      optional: true,
-      enter: function () {
-        var i = s.querySelector("#onbName");
-        if (i) { i.value = S.userName || ""; setTimeout(function () { try { i.focus(); } catch (e) {} }, 100); }
-      },
-      before: function () {
-        var i = s.querySelector("#onbName");
-        if (i) { S.userName = String(i.value || "").slice(0, 40); }
+    function paint() {
+      for (var r = 0; r < grid.length; r++) {
+        for (var c = 0; c < grid[r].length; c++) { setCls(grid[r][c], "sel", r === fr && c === fc); }
       }
-    };
-  }
+    }
+    function focusEl(el) {
+      for (var r = 0; r < grid.length; r++) {
+        var c = grid[r].indexOf(el);
+        if (c >= 0) { fr = r; fc = c; paint(); return; }
+      }
+    }
+    function moveFocus(dr, dc) {
+      if (!grid.length) { return; }
+      if (dr) {
+        var nr = fr + dr;
+        if (nr < 0 || nr >= grid.length) { host.sound("edge"); return; }
+        // aynı hizadaki öğeye geç (yatay merkeze en yakın)
+        var from = grid[fr][fc], x = from.getBoundingClientRect(), mid = x.left + x.width / 2;
+        var best = 0, bd = 1e9;
+        for (var i = 0; i < grid[nr].length; i++) {
+          var b = grid[nr][i].getBoundingClientRect(), d = Math.abs(b.left + b.width / 2 - mid);
+          if (d < bd) { bd = d; best = i; }
+        }
+        fr = nr; fc = best;
+      } else {
+        var nc = fc + dc;
+        if (nc < 0 || nc >= grid[fr].length) { host.sound("edge"); return; }
+        fc = nc;
+      }
+      host.sound("move");
+      paint();
+    }
 
-  // --- Adım 3: Wi-Fi (sadece PC) ---
-  function wifiStep() {
-    var s = el("div", "onb-step");
-    var status = el("div", "onb-net", '<i></i><span>Ağ durumu kontrol ediliyor…</span>');
-    s.innerHTML =
-      '<h1>İnternete bağlı mısın?</h1>' +
-      '<p>Birçok özellik için ağ gerekir. Zaten bağlıysan "Devam" diyebilirsin.</p>';
-    s.appendChild(status);
-    return {
-      el: s,
-      optional: true,
-      enter: function () {
-        if (!Platform || !Platform.api) { return; }
-        Platform.api("GET", "/api/status", null, function (res) {
-          if (res && res.online) {
-            status.className = "onb-net on";
-            status.innerHTML = '<i></i><span>Bağlı' + (res.name ? ' · ' + esc(res.name) : '') + '</span>';
-          } else {
-            status.className = "onb-net off";
-            status.innerHTML = '<i></i><span>Bağlı değil — kurulumdan sonra Ayarlar > Wi-Fi\'den bağlanabilirsin</span>';
-          }
+    // ---- adım geçişi ----
+    function show(i) {
+      clearInterval(pollT);
+      pollT = null;
+      cur = i;
+      step = steps[i]();
+      body.innerHTML = "";
+      body.appendChild(step.el);
+      step.el.className += " onb-in";
+      top.querySelector(".onb-count").textContent = "Adım " + (i + 1) + " / " + steps.length;
+      top.querySelector(".onb-bar i").style.width = Math.round((i + 1) / steps.length * 100) + "%";
+      renderFoot();
+    }
+    function renderFoot() {
+      foot.innerHTML = "";
+      var row = [];
+      if (cur > 0) { row.push(focusable(mk("div", "onb-btn", "‹ Geri"), back)); }
+      var primary = focusable(mk("div", "onb-btn primary", step.next ? step.next() : "Devam ›"), next);
+      row.push(primary);
+      for (var i = 0; i < row.length; i++) { foot.appendChild(row[i]); }
+      grid = (step.rows || []).concat([row]);
+      fr = step.focusRow != null ? step.focusRow : grid.length - 1;
+      fc = fr === grid.length - 1 ? row.length - 1 : 0;
+      paint();
+    }
+    // Birincil düğme etiketi adım içinde değişebilir (ör. ad yazılınca "Atla" -> "Devam")
+    function refreshPrimary() {
+      var p = foot.querySelector(".primary");
+      if (p && step.next) { p.textContent = step.next(); }
+    }
+    function next() {
+      host.sound("select");
+      if (step.leave) { step.leave(); }
+      if (cur === steps.length - 1) { clearInterval(pollT); host.done(); return; }
+      show(cur + 1);
+    }
+    function back() {
+      if (cur === 0) { host.sound("edge"); return; }
+      host.sound("back");
+      show(cur - 1);
+    }
+
+    // ---- adımlar ----
+    function welcome() {
+      var el = mk("div", "onb-step");
+      el.innerHTML = '<div class="onb-logo">' + BEE + '</div>';
+      el.appendChild(mk("h1", "", "beeOS'a hoş geldin"));
+      el.appendChild(mk("p", "", "Uygulamaların tek ekranda, telefonun kumandada. Birkaç kısa adımda hazırız."));
+      return { el: el, next: function () { return "Başlayalım ›"; } };
+    }
+
+    function name() {
+      var el = mk("div", "onb-step");
+      el.appendChild(mk("h1", "", "Sana nasıl hitap edelim?"));
+      el.appendChild(mk("p", "", "Adın ana ekranda “Günaydın, Ayşe” gibi görünür. İstemezsen boş bırak."));
+      var field = mk("div", "onb-field");
+      function paintField() {
+        field.textContent = S.userName || "Adını yazmak için OK'a bas";
+        setCls(field, "ph", !S.userName);
+      }
+      function edit(initial) {
+        host.askText({ title: "Adın", text: initial != null ? initial : S.userName, max: 24, placeholder: "Adını yaz" },
+          function (v) {
+            S.userName = String(v || "").replace(/^\s+|\s+$/g, "").slice(0, 24);
+            paintField();
+            refreshPrimary();
+            if (S.userName) { focusEl(foot.querySelector(".primary")); }
+          });
+      }
+      focusable(field, function () { edit(); });
+      paintField();
+      el.appendChild(field);
+      // Ad zaten varsa odak "Devam"da başlar; yoksa alanda (OK klavyeyi açar)
+      return { el: el, rows: [[field]], focusRow: S.userName ? null : 0,
+               next: function () { return S.userName ? "Devam ›" : "Şimdilik atla ›"; },
+               onChar: function (ch) { edit((S.userName || "") + ch); } };
+    }
+
+    function network() {
+      var el = mk("div", "onb-step");
+      el.appendChild(mk("h1", "", "İnternet bağlantısı"));
+      var pill = mk("div", "onb-pill", "Kontrol ediliyor…");
+      var hint = mk("p", "", "");
+      var retry = mk("div", "onb-btn small", "Tekrar kontrol et");
+      el.appendChild(pill);
+      el.appendChild(hint);
+      var res = { el: el, rows: [] };
+      function check() {
+        pill.className = "onb-pill";
+        pill.textContent = "Kontrol ediliyor…";
+        if (!host.api) { offline(); return; }
+        host.api("GET", "/api/status", null, function (r) {
+          if (r && r.online) {
+            pill.className = "onb-pill ok";
+            pill.textContent = "Bağlı" + (r.name ? " · " + r.name : "");
+            hint.textContent = "Her şey yolunda. Devam edebilirsin.";
+            if (retry.parentNode) { retry.parentNode.removeChild(retry); }
+            grid = [grid[grid.length - 1]]; fr = 0; fc = grid[0].length - 1; paint();
+          } else { offline(); }
         });
       }
-    };
-  }
-
-  // --- Adım 4: Telefon kumandası (QR + PIN) ---
-  function remoteStep(S) {
-    var s = el("div", "onb-step");
-    s.innerHTML =
-      '<h1>Telefonu kumanda yap</h1>' +
-      '<p>Kodu telefonun kamerasıyla okut; adresi ve PIN\'i otomatik açsın. Aynı Wi-Fi\'de olmalısın.</p>' +
-      '<div class="onb-row"><div class="onb-qr" id="onbQr"><div style="width:240px;height:240px;' +
-      'display:flex;align-items:center;justify-content:center;color:#666;font-size:16px">Yükleniyor…</div>' +
-      '<div class="url" id="onbUrl">—</div></div></div>' +
-      '<p style="font-size:17px;margin-top:4px">Sonra: <b>Sistem › Telefon</b> ile her an bulabilirsin.</p>';
-    return {
-      el: s,
-      optional: true,
-      enter: function () {
-        if (!Platform || !Platform.api || plat !== "pc") {
-          s.querySelector("#onbQr").innerHTML = '<div style="padding:28px;color:#666">' +
-            'Telefon kumandası yalnız beeOS PC sürümünde çalışır.</div>';
-          return;
+      function offline() {
+        pill.className = "onb-pill bad";
+        pill.textContent = "Bağlı değil";
+        hint.textContent = "Netflix, YouTube gibi uygulamalar için internet gerekir. Kurulumdan sonra " +
+                           "Ayarlar › Wi-Fi'den bağlanabilirsin.";
+        if (!retry.parentNode) {
+          el.appendChild(retry);
+          grid = [[retry], grid[grid.length - 1]];
+          fr = 1; fc = grid[1].length - 1;      // odak "Devam"da kalsın
+          paint();
         }
-        Platform.api("GET", "/api/remote", null, function (res) {
-          var q = s.querySelector("#onbQr"), u = s.querySelector("#onbUrl");
-          if (!res || !res.urls || !res.urls.length) {
-            q.innerHTML = '<div style="padding:28px;color:#666">Henüz ağ yok. Önce Wi-Fi\'ye bağlan.</div>';
+      }
+      focusable(retry, function () { host.sound("select"); check(); });
+      setTimeout(check, 0);
+      return res;
+    }
+
+    function phone() {
+      var el = mk("div", "onb-step");
+      el.appendChild(mk("h1", "", "Telefonun kumanda olsun"));
+      var wrap = mk("div", "onb-phone");
+      var qr = mk("div", "onb-qr");
+      qr.appendChild(mk("div", "onb-qr-wait", "Hazırlanıyor…"));
+      var list = mk("div", "onb-howto");
+      list.innerHTML =
+        '<div class="li"><span>1</span>Telefonun kamerasını aç ve kodu okut.</div>' +
+        '<div class="li"><span>2</span>Tarayıcı “bağlantı gizli değil” derse <b>Gelişmiş › Devam et</b>. ' +
+        'Bu, TV\'nin kendi yerel sertifikası.</div>' +
+        '<div class="li"><span>3</span>Kumanda kendiliğinden bağlanır; PIN yazman gerekmez.</div>';
+      var manual = mk("div", "onb-manual", "");
+      var state = mk("div", "onb-pill", "Telefon bekleniyor…");
+      list.appendChild(manual);
+      list.appendChild(state);
+      wrap.appendChild(qr);
+      wrap.appendChild(list);
+      el.appendChild(wrap);
+      var connected = false, seq0 = -1;
+      var res = { el: el, next: function () { return connected ? "Devam ›" : "Şimdilik atla ›"; } };
+      if (host.api) {
+        host.api("GET", "/api/remote", null, function (r) {
+          qr.innerHTML = "";
+          if (!r || !r.urls || !r.urls.length) {
+            qr.appendChild(mk("div", "onb-qr-wait", "Ağ yok. Önce internete bağlan."));
+            state.textContent = "Ağ bağlantısı gerekli";
             return;
           }
-          var url = res.urls[0];
-          if (res.fingerprint) { url += "#fp=" + res.fingerprint; }
+          var url = r.urls[0] + "#pin=" + r.pin + (r.fingerprint ? "&fp=" + r.fingerprint : "");
           try {
-            q.innerHTML = '<img src="' + QR.toDataUri(url, 240) + '" alt="QR">';
-            q.appendChild(el("div", "url", res.urls[0] + " · PIN " +
-              (res.pin || "").replace(/^(\d{3})(\d{3})$/, "$1 $2")));
-          } catch (e) {
-            q.innerHTML = '<div style="padding:28px;color:#666">QR üretilemedi</div>';
-          }
-          u.textContent = "";
+            var img = mk("img");
+            img.src = host.qr.toDataUri(url, 300);
+            img.alt = "QR kod";
+            qr.appendChild(img);
+          } catch (e) { qr.appendChild(mk("div", "onb-qr-wait", "QR üretilemedi")); }
+          manual.textContent = "Kamerasız: " + r.urls[0].replace(/^https?:\/\//, "") + "  ·  PIN " +
+                               String(r.pin || "").replace(/^(\d{3})(\d{3})$/, "$1 $2");
         });
+        // Telefon bağlanınca (başarılı eşleşme sayacı artınca) adım kendini günceller
+        function poll() {
+          host.api("GET", "/api/status", null, function (r) {
+            if (!r || typeof r.remoteSeq !== "number") { return; }
+            if (seq0 < 0) { seq0 = r.remoteSeq; return; }
+            if (r.remoteSeq > seq0 && !connected) {
+              connected = true;
+              state.className = "onb-pill ok";
+              state.textContent = "Telefon bağlandı";
+              host.sound("open");
+              refreshPrimary();
+              focusEl(foot.querySelector(".primary"));
+            }
+          });
+        }
+        poll();
+        pollT = setInterval(poll, 2000);
       }
-    };
-  }
+      return res;
+    }
 
-  // --- Adım 5: Favoriler (seç 0-6) ---
-  function favoritesStep(S) {
-    var s = el("div", "onb-step");
-    s.innerHTML =
-      '<h1>Favorilerini seç</h1>' +
-      '<p>Favoriler ana ekranın en üstünde "Favoriler" rafında görünür. Sonra istediğin an değiştirebilirsin.</p>';
-    var grid = el("div", "onb-grid");
-    s.appendChild(grid);
-
-    // CONFIG'ten tanınan popüler kartları çıkar
-    var items = [];
-    try {
-      var rows = (typeof CONFIG !== "undefined" ? CONFIG.rows : []) || [];
-      var seen = {};
-      for (var r = 0; r < rows.length; r++) {
-        var it = rows[r].items || [];
-        for (var k = 0; k < it.length; k++) {
-          var id = it[k].id;
-          if (popularIds.indexOf(id) >= 0 && !seen[id]) { items.push(it[k]); seen[id] = 1; }
+    function favorites() {
+      var el = mk("div", "onb-step");
+      el.appendChild(mk("h1", "", "Favori uygulamalarını seç"));
+      el.appendChild(mk("p", "", "Seçtiklerin ana ekranın en üstünde durur. Sonra kart menüsünden değiştirebilirsin."));
+      var items = [], seen = {};
+      for (var r = 0; r < host.catalog.length; r++) {
+        var list = host.catalog[r].items || [];
+        for (var k = 0; k < list.length; k++) {
+          var it = list[k];
+          if (POPULAR.indexOf(it.id) >= 0 && !seen[it.id] && host.available(it)) { items.push(it); seen[it.id] = 1; }
         }
       }
-    } catch (e) {}
-
-    for (var i = 0; i < items.length; i++) {
-      var it2 = items[i];
-      var c = (it2.colors || ["#2a3142", "#151a26"]);
-      var card = el("button", "onb-card");
-      card.setAttribute("data-id", it2.id);
-      card.style.borderColor = "transparent";
-      card.style.background = "linear-gradient(145deg," + c[0] + "," + (c[1] || c[0]) + ")";
-      card.innerHTML = '<span class="ch">✓</span>' +
-        '<div style="font-size:19px;font-weight:700;line-height:1.1">' + esc(it2.name) + '</div>' +
-        (it2.sub ? '<div style="font-size:13px;opacity:.8;margin-top:4px">' + esc(it2.sub) + '</div>' : "");
-      if ((S.favorites || []).indexOf(it2.id) >= 0) { card.classList.add("on"); }
-      (function (c) {
-        c.onclick = function () { c.classList.toggle("on"); };
-      })(card);
-      grid.appendChild(card);
+      items.sort(function (a, b) { return POPULAR.indexOf(a.id) - POPULAR.indexOf(b.id); });
+      var chosen = (S.favorites || []).slice();
+      var box = mk("div", "onb-cards");
+      var count = mk("div", "onb-count2", "");
+      var rows = [], perRow = items.length > 4 ? 3 : items.length;
+      function paintCount() {
+        count.textContent = chosen.length ? chosen.length + " uygulama seçildi" : "Henüz seçim yok";
+      }
+      items.forEach(function (it, i) {
+        var c = it.colors || ["#2a3142", "#151a26"];
+        var card = mk("div", "onb-card");
+        card.style.background = "-webkit-linear-gradient(-55deg," + c[0] + "," + (c[1] || c[0]) + ")";
+        card.style.background = "linear-gradient(145deg," + c[0] + "," + (c[1] || c[0]) + ")";
+        card.appendChild(mk("div", "onb-card-n", it.name));
+        card.appendChild(mk("div", "onb-card-s", it.sub || ""));
+        card.appendChild(mk("div", "onb-check", "✓"));
+        setCls(card, "on", chosen.indexOf(it.id) >= 0);
+        focusable(card, function () {
+          var at = chosen.indexOf(it.id);
+          if (at >= 0) { chosen.splice(at, 1); } else { chosen.push(it.id); }
+          setCls(card, "on", at < 0);
+          host.sound(at < 0 ? "select" : "back");
+          paintCount();
+          refreshPrimary();
+        });
+        if (i % perRow === 0) { rows.push([]); box.appendChild(mk("div", "onb-cardrow")); }
+        rows[rows.length - 1].push(card);
+        box.lastChild.appendChild(card);
+      });
+      if (!items.length) { box.appendChild(mk("p", "", "Uygulama listesi henüz hazır değil; sonra da seçebilirsin.")); }
+      paintCount();
+      el.appendChild(box);
+      el.appendChild(count);
+      return { el: el, rows: rows, focusRow: rows.length ? 0 : null,
+               next: function () { return chosen.length ? "Devam ›" : "Seçmeden devam et ›"; },
+               leave: function () { S.favorites = chosen.slice(); } };
     }
-    if (!items.length) { grid.innerHTML = '<div style="color:#8b93a7">Uygulamalar henüz yüklenmedi.</div>'; }
+
+    function finish() {
+      var el = mk("div", "onb-step");
+      el.innerHTML = '<div class="onb-logo small">' + BEE + '</div>';
+      el.appendChild(mk("h1", "", S.userName ? "Hazırsın, " + S.userName + "!" : "Hazırsın!"));
+      el.appendChild(mk("p", "", "Hatırlaman gereken birkaç tuş:"));
+      var keys = pc
+        ? [["Yön tuşları", "Kartlar arasında gez"], ["Enter", "Uygulamayı aç"],
+           ["Enter basılı tut", "Kartı taşı, gizle, favorile"], ["F1", "beeOS ayarları"],
+           ["Harf yaz", "Aramayı başlat"], ["Home", "Her yerden beeOS'a dön"]]
+        : [["Yön tuşları", "Kartlar arasında gez"], ["OK", "Uygulamayı aç"],
+           ["OK basılı tut", "Kartı taşı, gizle, favorile"], ["Kırmızı tuş", "beeOS ayarları"],
+           ["Geri", "Bir önceki ekrana dön"]];
+      var tbl = mk("div", "onb-keys");
+      keys.forEach(function (k) {
+        var row = mk("div", "onb-krow");
+        row.appendChild(mk("span", "onb-kbd", k[0]));
+        row.appendChild(mk("span", "onb-kdesc", k[1]));
+        tbl.appendChild(row);
+      });
+      el.appendChild(tbl);
+      return { el: el, next: function () { return "Ana ekrana git ›"; } };
+    }
+
+    show(0);
 
     return {
-      el: s,
-      optional: true,
-      before: function () {
-        var chosen = [];
-        var cards = grid.getElementsByClassName("onb-card");
-        for (var i = 0; i < cards.length; i++) {
-          if (cards[i].classList.contains("on")) { chosen.push(cards[i].getAttribute("data-id")); }
-        }
-        S.favorites = chosen;
-      }
+      el: root,
+      key: function (k) {
+        if (k === 37) { moveFocus(0, -1); }
+        else if (k === 39) { moveFocus(0, 1); }
+        else if (k === 38) { moveFocus(-1, 0); }
+        else if (k === 40) { moveFocus(1, 0); }
+        else if (k === 13) { var el = grid[fr] && grid[fr][fc]; if (el) { el.__act(); } }
+        else if (k === 461 || k === 27 || k === 8) { back(); }
+        return true;     // sihirbaz açıkken hiçbir tuş ana ekrana gitmez
+      },
+      char: function (ch) { if (step && step.onChar) { step.onChar(ch); } }
     };
-  }
-
-  // --- Adım 6: Bitti + tuş ipuçları ---
-  function finishStep() {
-    var s = el("div", "onb-step");
-    var kbd = plat === "pc"
-      ? '<div class="onb-kbd">' +
-        '<div class="k">Enter</div><div class="v">Uygulamayı aç</div>' +
-        '<div class="k">Yön tuşları</div><div class="v">Kartlar arası gez</div>' +
-        '<div class="k">F1</div><div class="v">beeOS ayarları</div>' +
-        '<div class="k">A–Z yaz</div><div class="v">Arama başlat</div>' +
-        '<div class="k">Home</div><div class="v">beeOS ana ekrana dön</div>' +
-        '</div>'
-      : '<div class="onb-kbd">' +
-        '<div class="k">OK</div><div class="v">Uygulamayı aç</div>' +
-        '<div class="k">Yön tuşları</div><div class="v">Kartlar arası gez</div>' +
-        '<div class="k">OK basılı tut</div><div class="v">Kartı taşı veya gizle</div>' +
-        '<div class="k">Geri</div><div class="v">Uygulamadan çıkma / beeOS\'a dön</div>' +
-        '</div>';
-    s.innerHTML =
-      '<div class="big">🐝</div>' +
-      '<h1>Hepsi bu kadar!</h1>' +
-      '<p>İşte hatırlaman gereken tuşlar:</p>' +
-      kbd +
-      '<p style="font-size:17px">Sistem > beeOS ayarlarından her şeyi değiştirebilirsin.</p>';
-    return { el: s, nextLabel: "Başla ›" };
-  }
-
-  function finish() {
-    try {
-      if (cbs && typeof cbs.saveSettings === "function") { cbs.saveSettings(); }
-    } catch (e) {}
-    if (root) {
-      root.classList.add("hide");
-      setTimeout(function () { try { root.parentNode.removeChild(root); } catch (e) {} root = null; }, 450);
-    }
-    try { if (cbs && cbs.done) { cbs.done(); } } catch (e) {}
-  }
-
-  // Dpad desteği (TV uzaktan kumanda / OK)
-  function keydown(ev) {
-    if (!root) { return; }
-    var k = ev.key;
-    if (k === "ArrowRight" || k === "Enter") {
-      var btn = root.querySelector("#onbFoot .primary");
-      if (btn) { btn.click(); ev.preventDefault(); }
-    } else if (k === "ArrowLeft") {
-      var back = root.querySelector("#onbFoot .ghost");
-      if (back && back.textContent.indexOf("Geri") >= 0) { back.click(); ev.preventDefault(); }
-    } else if (k === "Escape" || k === "Backspace") {
-      if (cur > 0) { showStep(cur - 1); ev.preventDefault(); }
-    }
-  }
-
-  function start(platform, callbacks) {
-    plat = platform || "pc";
-    cbs = callbacks || {};
-    build(cbs.store || {});
-    document.addEventListener("keydown", keydown, true);
   }
 
   return { start: start };

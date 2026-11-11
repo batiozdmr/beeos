@@ -113,7 +113,19 @@ Hepsi `X-BeeOS: 1` + Host `127.0.0.1:8080` ister. Başarısızlık: 403 `forbidd
 |---|---|---|---|
 | GET | `/api/sleep` | — | `{left, action}` |
 | POST | `/api/sleep` | `{minutes, action?: "off"\|"closeapps"}` | aynı |
-| POST | `/api/time` | `{time: "YYYY-MM-DD HH:MM[:SS]"}` | `{ok, error?}` |
+| POST | `/api/time` | `{time: "YYYY-MM-DD HH:MM[:SS]"}` | `{ok, error?}` — ağ saatini kapatıp ayarlar |
+
+### Arayüz durumu ve yedek
+
+| Method | Path | Body | Yanıt |
+|---|---|---|---|
+| GET | `/api/uistate` | — | `{state: {settings, profiles, active} \| null}` |
+| POST | `/api/uistate` | `{state}` | `{ok}` — arayüz her ayar değişikliğinde (2 sn gecikmeli) yazar |
+| POST | `/api/uistate/restored` | — | `{ok}` — geri yükleme uygulandı, `restore` bayrağı iner |
+| GET | `/api/backup` | — | `{backup: {app, version, ts, data: {ui}}}` — PIN ve oturum anahtarı içermez |
+| POST | `/api/backup` | `{data: <backup>}` | `{ok, restored}` — arayüz `/api/status` `restore:true` görünce yenilenir |
+| GET | `/api/notifications` | — | `{unread, items}` |
+| POST | `/api/notifications/seen` · `/clear` | `{id?}` | `{ok}` |
 
 ---
 
@@ -152,6 +164,20 @@ Her istek PIN veya oturum imzası ister. PIN başarısız 10 kez → 5 dk kilit 
 | POST | `/api/mirror/signal` | `{role: "offerer", sdp?, ice?}` + `X-BeeOS-Mirror: <token>` | `{sdp, ice}` — offerer polling |
 | POST | `/api/mirror/stop` | — | `{ok}` |
 
+### Sistem sayfası (telefon)
+
+Hepsi POST; gövde boşsa okuma yapar.
+
+| Path | Body | Yanıt |
+|---|---|---|
+| `/api/sleep` | `{}` okur · `{minutes, action?}` ayarlar | `{left, action}` |
+| `/api/time` | `{time}` | `{ok, error?}` |
+| `/api/backup` | `{}` dışa aktarır · `{data}` geri yükler | `{backup}` / `{ok, restored}` |
+| `/api/notifications` · `/seen` · `/clear` | `{id?}` | `{unread, items}` / `{ok}` |
+
+TV'deki QR kodu `https://<ip>:8081/#pin=<PIN>&fp=<parmak izi>` adresini taşır. `#` sonrası sunucuya
+gönderilmez; telefon PIN'i buradan okuyup kendiliğinden eşleşir, sonra adres çubuğundan siler.
+
 ---
 
 ## HMAC oturum imzası nasıl
@@ -172,7 +198,8 @@ Headers:
 ## Mirror token nasıl
 
 - `mirror_start` ilk çağrıda `token` üretir (24 bayt base64url).
-- Sonraki her `mirror/signal` isteğinde `X-BeeOS-Mirror: <token>` gönder (role=offerer olduğunda).
+- Sonraki her `mirror/signal` isteğinde `X-BeeOS-Mirror: <token>` gönder. Telefon (offerer) bu token'ı,
+  TV'deki `mirror.html` (answerer) ise onay sonrası adresine (`?tok=`) yazılan ayrı bir token'ı kullanır.
 - Oturum bittiğinde (`/api/mirror/stop` veya 60 sn boşluk) token geçersiz.
 
 ## Hata kodları

@@ -3,6 +3,41 @@
 Bu dosya [Keep a Changelog](https://keepachangelog.com/) biçimini takip eder ve [SemVer](https://semver.org/) kurallarına uyar.
 Giriş yazımı: `feat:`, `fix:`, `security:`, `perf:`, `docs:`, `chore:`.
 
+## [0.14.0] — 2026-11-11
+
+Kullanıcı deneyimi turu: TV (1920×1080, 1280×720) ve telefon (375×812, 320×640) boyutlarında tarayıcıda
+adım adım test edilip bulunan hatalar.
+
+### Düzeltme (kritik)
+- **Karşılama sihirbazı yeniden yazıldı.** Önceki sürümde sihirbazdaki her Enter arkadaki ana ekranda
+  uygulama açıyordu; favoriler kumandayla seçilemiyordu; isim alanında Backspace önceki adıma atıp
+  yazılanı siliyordu; eski webOS'ta (Chromium 38) stiller çalışmıyordu ve 1280×720'de ekrandan taşıyordu.
+  Artık sahnenin içinde ölçekleniyor, tüm tuşları kendisi alıyor, her öğe kumandayla seçiliyor; ad
+  beeOS'un ekran klavyesiyle yazılıyor. TV'de telefon ve ağ adımları atlanıyor.
+- **Ekran yansıtma onayı kumandayla verilebiliyor** (önce yalnız fareyle tıklanıyordu). İstek gelince
+  beeOS öne geliyor ve soru anında çıkıyor; telefon vazgeçerse ya da süre dolarsa kendiliğinden kapanıyor.
+- **Ebeveyn kilidi ve profil adı** tarayıcının yazı kutusu yerine beeOS'un kendi PIN tuş takımı ve ekran
+  klavyesiyle. PIN iki kez soruluyor; kilidi kaldırmak ve PIN'i değiştirmek mevcut PIN'i istiyor.
+- **Yedekleme PIN'i ve oturum anahtarlarını artık dışarı vermiyor.** Yedek, arayüzün gerçek ayarlarını
+  (favoriler, profiller, sıralama, kanallar) içeriyor; telefondan geri yüklenebiliyor.
+- **Telefonun Sistem sayfasındaki uyku zamanlayıcı, saat, yedek ve bildirim düğmeleri çalışmıyordu**
+  (yalnız TV'nin yerel sunucusunda tanımlıydı). Kumanda sunucusuna eklendi; saat ayarlarken ağ saati kapatılıyor.
+- Ayarlardan açılan menü kapanınca tuşlar ana ekrana gidiyordu; artık açıldığı yere dönüyor.
+- **Yansıtma isteğini reddetmek arka ucu kilitliyordu** (0.9'dan beri): aynı kilit iki kez alınıyordu,
+  sonrasında yeniden başlatana kadar yansıtma çalışmıyordu. Düzeltildi, test eklendi.
+- Bildirim merkezi "okundu" işaretlerken okunmamış sayısını yanlış (0) döndürüyordu.
+
+### İyileştirme
+- **QR ile tek adımda eşleşme**: QR PIN'i de taşıyor (`#pin=`, sunucuya gitmez); telefon kendiliğinden
+  bağlanıyor ve PIN adres çubuğundan siliniyor. Sihirbaz telefon bağlanınca bunu gösteriyor.
+- Ana ekran: alttaki ipucu şeridi kartların üstüne yazı bindirmiyor; alt raflara inerken üst bölüm aniden
+  kaybolmak yerine kayarak soluyor; "Son açılanlar" rafı en az 3 kart olunca görünüyor.
+- Ayarlar: Aile (profil, ebeveyn kilidi) ve Karşılama grupları "Sıfırlama"nın üstüne taşındı; profil adı
+  "Varsayılan" olarak görünüyor ve Türkçe karakter kabul ediyor.
+- Telefon kumandası: bildirimler başlıkta sayaçlı zil; Fare, uyku, saat ve yedek için ayrı ikonlar; uyku
+  ekranı açık zamanlayıcıyı gösteriyor; kumanda sayfası yaygın telefonlarda kaydırmadan sığıyor; 320 px
+  telefonlarda mod seçici ve medya tuşları taşmıyor.
+
 ## [0.13.0] — 2026-11-11
 
 ### Yeni

@@ -358,7 +358,8 @@ def status():
             name = "Kablolu ağ"
     mp = mirror_pending()
     return {"ok": True, "online": state.strip() == "connected", "name": name,
-            "remoteSeq": remote["seq"], "mirror": mp.get("pending"), "mirrorState": mp.get("state")}
+            "remoteSeq": remote["seq"], "mirror": mp.get("pending"), "mirrorState": mp.get("state"),
+            "restore": ui_restore["pending"]}
 
 
 # ---------- Bluetooth (BlueZ) ----------
@@ -486,6 +487,21 @@ def _sleep_fire(action):
         power("off")
 
 
+def set_time(s):
+    """Saati elle ayarla. Ağ saati (NTP) açıkken timedatectl reddeder: önce kapatılır."""
+    s = s.strip().replace("T", " ")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?", s):
+        return {"ok": False, "error": "Tarih ve saat seçilmedi"}
+    if len(s) == 16:
+        s += ":00"
+    subprocess.run(["timedatectl", "set-ntp", "false"], capture_output=True, timeout=5)
+    p = subprocess.run(["timedatectl", "set-time", s], capture_output=True, text=True, timeout=5)
+    if p.returncode != 0:
+        log("saat ayarlanamadı:", p.stderr.strip())
+        return {"ok": False, "error": "Saat ayarlanamadı"}
+    return {"ok": True}
+
+
 def sleep_get():
     with sleep_lock:
         left = max(0, int(sleep_timer["until"] - time.time())) if sleep_timer["until"] else 0
@@ -493,46 +509,68 @@ def sleep_get():
 
 
 # ---------- yedekleme / geri yükleme ----------
-BACKUP_FILES = {
-    "settings": "/var/lib/beeos/settings.json",   # arayüzün kendi settings'i (UI /api/backup ile yollar)
-    "remote": REMOTE_FILE,                        # kumanda eşleşmeleri + PIN
-    "lists": "/var/lib/beeos/tv-lists.json",      # (opsiyonel) M3U listeleri — UI tutuyorsa
-}
+# Yedeğe yalnızca kullanıcı tercihleri girer. Kumanda PIN'i ve oturum anahtarları (remote.json)
+# bilerek dışarıda: yedek dosyası telefona iner, başkasının eline geçebilir.
+UI_STATE_FILE = os.path.join(STATE_DIR, "ui-state.json")
+ui_restore = {"pending": False}
+
+
+def _write_json(path, content):
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(content, f)
+    os.replace(tmp, path)
+
+
+def uistate_get():
+    try:
+        with open(UI_STATE_FILE, encoding="utf-8") as f:
+            return {"ok": True, "state": json.load(f)}
+    except (OSError, ValueError):
+        return {"ok": True, "state": None}
+
+
+def uistate_set(state):
+    """Arayüz her ayar değişikliğinde (2 sn gecikmeli) kendi durumunu buraya yazar."""
+    if not isinstance(state, dict) or not isinstance(state.get("settings"), dict):
+        return {"ok": False, "error": "Geçersiz durum"}
+    raw = json.dumps(state)
+    if len(raw) > 512 * 1024:
+        return {"ok": False, "error": "Ayarlar çok büyük"}
+    try:
+        _write_json(UI_STATE_FILE, state)
+    except OSError as e:
+        log("uistate yazılamadı:", repr(e))
+        return {"ok": False, "error": "Ayarlar kaydedilemedi"}
+    return {"ok": True}
 
 
 def backup_export():
-    """Tüm kullanıcı ayarlarını tek JSON olarak döndür. UI dosyaya kaydedip başka kuruluma taşıyabilir."""
-    out = {"version": VERSION, "ts": int(time.time()), "data": {}}
-    for key, path in BACKUP_FILES.items():
-        try:
-            with open(path, encoding="utf-8") as f:
-                out["data"][key] = json.load(f)
-        except (OSError, ValueError):
-            pass
+    """Kullanıcı tercihlerini tek JSON olarak döndür; telefon dosya olarak indirir."""
+    st = uistate_get()["state"]
+    out = {"app": "beeOS", "version": VERSION, "ts": int(time.time()), "data": {}}
+    if st:
+        out["data"]["ui"] = st
     return {"ok": True, "backup": out}
 
 
 def backup_import(data):
-    """UI'den gelen JSON ile ayarları geri yükle. PIN/oturum dahil değil (güvenlik)."""
+    """Yedekten geri yükle. Arayüz bir sonraki yoklamada (/api/status restore) kendini yeniler."""
     if not isinstance(data, dict) or not isinstance(data.get("data"), dict):
-        return {"ok": False, "error": "Geçersiz yedek dosyası"}
-    restored = []
-    for key, path in BACKUP_FILES.items():
-        if key == "remote":
-            continue  # eşleşmeler yeniden yapılsın (güvenlik)
-        content = data["data"].get(key)
-        if content is None:
-            continue
-        try:
-            os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-            tmp = path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(content, f)
-            os.replace(tmp, path)
-            restored.append(key)
-        except OSError as e:
-            log("backup restore başarısız:", key, repr(e))
-    return {"ok": True, "restored": restored}
+        return {"ok": False, "error": "Bu dosya bir beeOS yedeği değil"}
+    ui_state = data["data"].get("ui")
+    if not isinstance(ui_state, dict):
+        return {"ok": False, "error": "Yedekte ayar bulunamadı"}
+    res = uistate_set(ui_state)
+    if not res["ok"]:
+        return res
+    ui_restore["pending"] = True
+    # Arayüz uzun yoklamada bekliyorsa hemen haber ver
+    with ui_cv:
+        ui["cmds"].append({"type": "restore"})
+        ui_cv.notify_all()
+    return {"ok": True, "restored": ["ui"]}
 
 
 # ---------- güncelleme (GitHub Releases) ----------
@@ -740,11 +778,13 @@ def notify(title, body="", kind="info"):
 
 def notification_list(mark_seen=False):
     with _notif_lock:
-        out = list(notifications)
+        # Kopya: okundu işaretlemesi dönen listedeki "yeni" bilgisini bozmasın
+        out = [dict(n) for n in notifications]
+        unread = sum(1 for n in out if not n["seen"])
         if mark_seen:
             for n in notifications:
                 n["seen"] = True
-    return {"ok": True, "unread": sum(1 for n in out if not n["seen"]), "items": out}
+    return {"ok": True, "unread": unread, "items": out}
 
 
 def notification_clear(item_id=None):
@@ -1814,29 +1854,43 @@ def _mirror_state():
     return mirror.get("state") or "idle"
 
 
+def _mirror_cancel_prompt():
+    """TV'de açık kalan onay sorusunu kapat (telefon vazgeçti / süre doldu)."""
+    with ui_cv:
+        ui["cmds"].append({"type": "mirror-cancel"})
+        ui_cv.notify_all()
+
+
 def mirror_reset(error=""):
     with mirror_lock:
+        was_pending = mirror["state"] == "pending"
         mirror.update(offer=None, answer=None, offer_ice=[], answer_ice=[],
                       ts=0.0, last=0.0, token="", answerer_token="",
                       pending=None, device="", state="idle", error=error)
+    if was_pending:
+        _mirror_cancel_prompt()
 
 
 def _mirror_reaper():
     while True:
         time.sleep(5)
         try:
+            expired = False
             with mirror_lock:
                 st = mirror["state"]
                 now = time.time()
                 if st == "pending" and mirror["pending"] and now - mirror["pending"]["ts"] > MIRROR_TIMEOUT:
                     mirror["pending"] = None
                     mirror["state"] = "idle"
+                    expired = True
                 elif st == "waiting" and now - mirror["ts"] > MIRROR_TIMEOUT:
                     mirror.update(offer=None, answer=None, offer_ice=[], answer_ice=[],
                                   ts=0.0, last=0.0, token="", state="idle", device="")
                 elif st == "live" and mirror["last"] and now - mirror["last"] > MIRROR_IDLE:
                     mirror.update(offer=None, answer=None, offer_ice=[], answer_ice=[],
                                   ts=0.0, last=0.0, token="", state="idle", device="")
+            if expired:
+                _mirror_cancel_prompt()
         except Exception as e:
             log("mirror reaper", repr(e))
 
@@ -1869,6 +1923,14 @@ def mirror_start(b, device=""):
                       pending={"ts": time.time(), "device": device or "Bilinmeyen cihaz"},
                       device=device or "Bilinmeyen cihaz", state="pending", error="")
     notify("Ekran yansıtma isteği", (device or "Bilinmeyen cihaz") + " paylaşmak istiyor.", "info")
+    # Onay sorusu hemen ekrana gelsin: beeOS'u öne al, arayüze uzun yoklama üzerinden komut gönder
+    try:
+        go_home()
+    except Exception as e:
+        log("mirror: beeOS öne alınamadı", repr(e))
+    with ui_cv:
+        ui["cmds"].append({"type": "mirror", "device": device or "Bilinmeyen cihaz"})
+        ui_cv.notify_all()
     return {"ok": True, "token": token, "pending": True}
 
 
@@ -1886,11 +1948,13 @@ def mirror_approve(accept):
         p = mirror["pending"]
         if not p:
             return {"ok": False, "error": "Bekleyen istek yok"}
-        if not accept:
-            mirror_reset("Kullanıcı reddetti")
-            return {"ok": True, "rejected": True}
         ans_token = mirror["answerer_token"]
-        mirror.update(pending=None, state="waiting", ts=time.time(), last=time.time())
+        if accept:
+            mirror.update(pending=None, state="waiting", ts=time.time(), last=time.time())
+    if not accept:
+        # mirror_reset kilidi kendisi alır: kilit içinde çağrılırsa kilitlenir (Lock tekrar girilemez)
+        mirror_reset("Kullanıcı reddetti")
+        return {"ok": True, "rejected": True}
     # TV sekmesi oluştur — mirror_lock dışında (DevTools 5 sn bekleyebilir).
     # Answerer token URL ile iletilir; mirror.html her imza isteğine header'a koyar.
     try:
@@ -2428,6 +2492,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 res = backup_export()
             elif method == "POST" and path == "/api/backup":
                 res = backup_import(b.get("data"))
+            elif method == "GET" and path == "/api/uistate":
+                res = uistate_get()
+            elif method == "POST" and path == "/api/uistate":
+                res = uistate_set(b.get("state"))
+            elif method == "POST" and path == "/api/uistate/restored":
+                ui_restore["pending"] = False
+                res = {"ok": True}
             elif method == "GET" and path == "/api/notifications":
                 res = notification_list(mark_seen=False)
             elif method == "POST" and path == "/api/notifications/seen":
@@ -2441,13 +2512,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     display_mode["othersOff"] = v
                 res = {"ok": True, "othersOff": display_mode["othersOff"]}
             elif method == "POST" and path == "/api/time":
-                s = str(b.get("time", "")).strip()
-                if not re.fullmatch(r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?", s):
-                    res = {"ok": False, "error": "Biçim: YYYY-MM-DD HH:MM"}
-                else:
-                    p = subprocess.run(["timedatectl", "set-time", s.replace("T", " ")],
-                                       capture_output=True, text=True, timeout=5)
-                    res = {"ok": p.returncode == 0, "error": p.stderr.strip() if p.returncode else ""}
+                res = set_time(str(b.get("time", "")))
             else:
                 send_json(self, {"ok": False, "error": "not found"}, 404)
                 return True
@@ -2576,6 +2641,19 @@ class RemoteHandler(http.server.BaseHTTPRequestHandler):
             elif path == "/api/mirror/stop":
                 mirror_reset()
                 res = {"ok": True}
+            # Telefonun Sistem sayfası: uyku, saat, yedek, bildirimler (hepsi POST; gövde yoksa okuma)
+            elif path == "/api/sleep":
+                res = sleep_set(b.get("minutes", 0), str(b.get("action", "off"))) if "minutes" in b else sleep_get()
+            elif path == "/api/time":
+                res = set_time(str(b.get("time", "")))
+            elif path == "/api/backup":
+                res = backup_import(b.get("data")) if "data" in b else backup_export()
+            elif path == "/api/notifications":
+                res = notification_list(mark_seen=False)
+            elif path == "/api/notifications/seen":
+                res = notification_list(mark_seen=True)
+            elif path == "/api/notifications/clear":
+                res = notification_clear(b.get("id"))
             else:
                 send_json(self, {"ok": False, "error": "not found"}, 404)
                 return

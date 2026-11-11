@@ -201,6 +201,27 @@ class MirrorState(unittest.TestCase):
 @_skip_if_no_bs
 class MirrorToken(unittest.TestCase):
     """0.9: answerer token zorunlu (Y1 düzeltmesi)."""
+    def setUp(self):
+        # Testte Chrome yok: alıcı sekmesini açma adımını taklit et
+        self._open, self._act, self._home = bs.open_app, bs.activate, bs.go_home
+        bs.open_app = lambda url, ua: "tab1"
+        bs.activate = lambda tid: None
+        bs.go_home = lambda: {"ok": True}
+
+    def tearDown(self):
+        bs.open_app, bs.activate, bs.go_home = self._open, self._act, self._home
+
+    def test_reject_does_not_deadlock(self):
+        """Reddet, kilit içinde mirror_reset çağırıp kilitlenmesin (0.9-0.13 hatası)."""
+        bs.mirror_reset()
+        bs.mirror_start({"sdp": "v=0..."}, device="Dev")
+        done = []
+        t = __import__("threading").Thread(target=lambda: done.append(bs.mirror_approve(False)))
+        t.daemon = True
+        t.start()
+        t.join(3)
+        self.assertTrue(done and done[0].get("rejected"), "mirror_approve(False) kilitlendi")
+
     def test_answerer_requires_token(self):
         bs.mirror_reset()
         bs.mirror_start({"sdp": "v=0..."}, device="Dev")
