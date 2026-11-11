@@ -85,6 +85,9 @@ ares-inspect --device tv com.beeuptech.beeos --open   # hata ayıklama
 - Tüm Uygulamalar rafı ve TV logoları `listApps` servisine bağlı; izin verilmezse raf görünmez, launcher normal çalışır.
 
 ## Flash disk (PC) sürümü
+
+> 📘 **İlk kez kuracaklar için**: [docs/pc-first-run.md](docs/pc-first-run.md) adım-adım kılavuzu.
+
 Debian 13 + sway (kiosk) + Google Chrome. Açılışta masaüstü yok, doğrudan tam ekran beeOS gelir.
 Kartlar web sürümlerini açar (YouTube TV arayüzü, Netflix, Prime, Disney+, Spotify).
 **Home**, **Windows** veya **F12** tuşu açık uygulamadan beeOS'a döner.

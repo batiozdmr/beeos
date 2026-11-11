@@ -1,0 +1,8 @@
+{
+  "name": "beeos",
+  "private": true,
+  "description": "beeOS launcher — dev tooling only (ESLint ES5 syntax check for webOS Chromium 38)",
+  "devDependencies": {
+    "eslint": "^8.57.0"
+  }
+}

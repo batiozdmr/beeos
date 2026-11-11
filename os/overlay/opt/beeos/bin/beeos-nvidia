@@ -1,0 +1,58 @@
+#!/bin/bash
+# beeOS Nvidia sürücü yardımcısı: non-free proprietary driver'ı kurar.
+# Nouveau (açık kaynak) modern Nvidia kartlarda çökebilir — proprietary daha kararlı.
+# Kullanım: beeos-nvidia install | status | remove
+# Kurulum sonrası yeniden başlatılması gerekir.
+set -euo pipefail
+
+status() {
+  if lsmod | grep -q '^nvidia '; then
+    echo "proprietary (nvidia) kernel modülü yüklü"
+    nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null || true
+  elif lsmod | grep -q '^nouveau '; then
+    echo "nouveau (açık kaynak) yüklü — modern kart varsa çökebilir"
+  else
+    echo "Nvidia sürücüsü bulunamadı"
+  fi
+  lspci -nn | grep -iE 'vga|3d|display' || true
+}
+
+install() {
+  # Yalnızca Nvidia donanımı varsa devam et
+  if ! lspci -nn | grep -qi 'nvidia'; then
+    echo "Nvidia donanımı bulunamadı." >&2
+    exit 1
+  fi
+  echo "== apt kaynaklarına non-free eklenmesi gerekir"
+  if ! grep -qE '(contrib|non-free)' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; then
+    sed -i 's/^\(deb .* main\)$/\1 contrib non-free non-free-firmware/' /etc/apt/sources.list
+  fi
+  apt-get update -qq
+  echo "== nvidia-driver kurulumu (büyük, 1-2 dk)"
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nvidia-driver firmware-misc-nonfree
+  echo "== nouveau blacklist"
+  cat >/etc/modprobe.d/beeos-nvidia.conf <<'EOF'
+blacklist nouveau
+options nouveau modeset=0
+EOF
+  update-initramfs -u
+  echo "== GRUB için nouveau blacklist zaten mevcut (os/build.sh)"
+  echo
+  echo "KURULUM BİTTİ. Yeniden başlat ve açılışta 'beeOS (deneme: Nvidia nouveau açık)' yerine normal 'beeOS'u seç."
+  echo "Durumu kontrol: beeos-nvidia status"
+}
+
+remove() {
+  echo "== nvidia-driver kaldırılıyor"
+  DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq 'nvidia-*' || true
+  rm -f /etc/modprobe.d/beeos-nvidia.conf
+  update-initramfs -u
+  echo "BİTTİ. Yeniden başlat."
+}
+
+case "${1:-status}" in
+  install) install ;;
+  remove) remove ;;
+  status) status ;;
+  *) echo "kullanım: $0 install | status | remove" >&2; exit 2 ;;
+esac

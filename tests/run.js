@@ -445,6 +445,47 @@ test("moveItem: sınır dışında kalan hareket değişiklik yapmaz", function 
   assert.deepStrictEqual(n(1, 1), ["a", "b"]);
 });
 
+// ---------- computeModel / availableHere ek senaryolar (0.12) ----------
+
+test("availableHere: only:tv + PC platformu → gizli", function () {
+  var a = makeAvailableHere("pc");
+  assert.strictEqual(a({ id: "com.webos.app.livetv", only: "tv" }), false);
+});
+
+test("availableHere: PC'de web yok + @-kart değil → gizli", function () {
+  var a = makeAvailableHere("pc");
+  assert.strictEqual(a({ id: "netflix" }), false, "web adresi olmayan normal kart PC'de gizli");
+  assert.strictEqual(a({ id: "netflix", web: "" }), false, "boş web string de gizli");
+});
+
+test("availableHere: only yok + web var → her ortamda görünür", function () {
+  var pc = makeAvailableHere("pc");
+  var tv = makeAvailableHere("tv");
+  var it = { id: "spotify", web: "https://open.spotify.com" };
+  assert.strictEqual(pc(it), true);
+  assert.strictEqual(tv(it), true);
+});
+
+test("availableHere: @-kartlar hem PC hem TV'de görünür (web olmasa da)", function () {
+  var pc = makeAvailableHere("pc"), tv = makeAvailableHere("tv");
+  assert.strictEqual(pc({ id: "@settings" }), true);
+  assert.strictEqual(tv({ id: "@tv" }), true);
+});
+
+test("moveItem: aynı konuma hareket (dir=0) değişiklik yapmaz", function () {
+  // dir=0 verildiğinde to=idx olur, swap aynı elemanı değiştirir (sonuç değişmez)
+  var m = makeMoveItem(["a", "b", "c"]);
+  assert.deepStrictEqual(m(1, 0), ["a", "b", "c"]);
+});
+
+test("moveItem: negatif başlangıç index güvenli", function () {
+  // idx+dir = -1 + 1 = 0, geçerli ama swap garip davranış: slice ile orijinali korumalı
+  var m = makeMoveItem(["a", "b"]);
+  // idx=-1 pratik olarak kullanılmaz; sınır kontrolü sadece to < 0 veya to >= length
+  var out = m(-1, -1);          // to = -2, dönüş orijinal kopyası
+  assert.deepStrictEqual(out, ["a", "b"]);
+});
+
 // ---------- summary ----------
 console.log("\n" + passed + " ok, " + failed + " failed");
 if (failed > 0) { process.exit(1); }

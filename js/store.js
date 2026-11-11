@@ -35,7 +35,9 @@ var Store = (function () {
     subSize: "medium",   // Alt yazı boyu: "small" | "medium" | "large" | "xlarge"
     subBg: "shadow",     // Alt yazı arkaplanı: "none" | "shadow" | "box"
     telemetry: false,    // Opt-in: UI log hatalarını arka uca /api/log olarak yazsın mı
-    onboarded: false     // İlk açılış sihirbazı tamamlandı mı (Onboarding.start göster/atla)
+    onboarded: false,    // İlk açılış sihirbazı tamamlandı mı (Onboarding.start göster/atla)
+    parentalPin: "",     // 4 haneli PIN (hash değil, basit düz metin — localStorage zaten korumalı)
+    locked: []           // PIN ister olan kart kimlikleri
   };
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }

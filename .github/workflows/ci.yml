@@ -22,6 +22,9 @@ jobs:
           for f in js/*.js os/backend/osd.js tests/*.js; do node --check "$f"; done
           for f in os/*.sh os/overlay/opt/beeos/bin/beeos-*; do bash -n "$f"; done
 
+      - name: ESLint (ES5 webOS uyumluluğu)
+        run: npx --yes eslint@8 "js/*.js" os/backend/osd.js
+
       - name: Birim testleri (Node)
         run: node tests/run.js
 

@@ -554,6 +554,15 @@
   function launch(item, opt) {
     opt = opt || {};
     if (item.skeleton) { Sound.play("edge"); return; }
+    // Ebeveyn kilidi: bu kart kilitliyse PIN sor; doğru girilene kadar açma
+    if (S.parentalPin && S.locked && S.locked.indexOf(item.id) >= 0 && !item.__unlocked) {
+      askParentalPin(item.name, function () {
+        item.__unlocked = true;      // bu oturumda bir kez girildi, sonra tekrar sorulsun
+        setTimeout(function () { delete item.__unlocked; }, 300000);   // 5 dk
+        launch(item, opt);
+      });
+      return;
+    }
     S.usage[item.id] = (S.usage[item.id] || 0) + 1;
     S.lastOpen[item.id] = new Date().getTime();
     save();
@@ -658,8 +667,44 @@
       if (i > 0) { opts.push({ label: "Başa taşı", run: function () { moveItem("first"); } }); }
     }
     if (item.id !== "@settings" && !synth) { opts.push({ label: "Gizle", run: hideItem }); }
+    // Ebeveyn kilidi: bu kart PIN'le mi açılsın? (PIN tanımlıysa göster)
+    if (S.parentalPin && item.id !== "@settings") {
+      var isLocked = (S.locked || []).indexOf(item.id) >= 0;
+      opts.push({ label: isLocked ? "PIN istenmesin" : "PIN ile aç", run: function () { toggleLock(item); } });
+    }
     opts.push({ label: "Kapat", run: function () {} });
     showMenu(item.name, opts);
+  }
+
+  function toggleLock(item) {
+    if (!S.locked) { S.locked = []; }
+    var i = S.locked.indexOf(item.id);
+    if (i >= 0) { S.locked.splice(i, 1); toast(item.name + " PIN'siz açılacak"); }
+    else { S.locked.push(item.id); toast(item.name + " artık PIN ister"); }
+    save();
+  }
+
+  // Basit PIN girişi — kart açılmadan önce
+  function askParentalPin(name, onOk) {
+    showMenu("PIN gerekiyor — " + name, [
+      { label: "0", run: noop }, { label: "1", run: noop }, { label: "2", run: noop },
+      { label: "3", run: noop }, { label: "4", run: noop }, { label: "5", run: noop },
+      { label: "6", run: noop }, { label: "7", run: noop }, { label: "8", run: noop },
+      { label: "9", run: noop }, { label: "Vazgeç", run: function () {} }
+    ]);
+    // Küçük basit PIN girişi: doğrudan prompt'u dpad OSK üzerinde yapmak uzun — prompt() kullan
+    // (webOS'ta prompt destekli; kullanıcı fiziksel klavye/dpad ile girer)
+    setTimeout(function () {
+      var v = window.prompt ? window.prompt("PIN (" + name + " için)") : null;
+      closeMenuIfOpen();
+      if (v && String(v).replace(/\D/g, "") === String(S.parentalPin)) { onOk(); }
+      else if (v != null) { toast("PIN yanlış"); Sound.play("error"); }
+    }, 50);
+    function noop() {}
+  }
+
+  function closeMenuIfOpen() {
+    if (mode === "menu") { mode = "home"; stage.classList.remove("menu-open"); }
   }
 
   // Ortada açılan seçim listesi. opts: [{ label, run }]
@@ -1069,7 +1114,21 @@
           saveSettings: function () { save(); applySettings(); renderRows(); },
           done: function () { S.onboarded = true; save(); renderRows(); }
         });
-      } }
+      } },
+    { group: "Ebeveyn kilidi", label: "Ebeveyn PIN'i", type: "action",
+      info: function () { return S.parentalPin ? "4 haneli" : "Kapalı"; },
+      run: function () {
+        var v = window.prompt ? window.prompt(S.parentalPin ? "Yeni PIN (boş = kapat)" : "4 haneli PIN") : null;
+        if (v == null) { return; }
+        v = String(v).replace(/\D/g, "").slice(0, 4);
+        if (v === "") { S.parentalPin = ""; S.locked = []; toast("Ebeveyn kilidi kapatıldı"); }
+        else if (v.length < 4) { toast("4 hane gerekli"); return; }
+        else { S.parentalPin = v; toast("PIN ayarlandı"); }
+        save();
+      } },
+    { label: "Kilitli kart sayısı", type: "action",
+      info: function () { return (S.locked || []).length + ""; },
+      run: function () { toast("Kart menüsünden PIN iste/isteme açılır"); } }
   ];
   // Panel bir "görünüm" gösterir: { head (HTML), sub, foot, rows, back }. Satır tanımları:
   //   { key, values, names }  S[key] değerini döndürür   { type: "text", get, set, next, secret }  ekran klavyesi

@@ -302,5 +302,155 @@ class Backup(unittest.TestCase):
         self.assertFalse(bs.backup_import({"no-data": True}).get("ok"))
 
 
+@_skip_if_no_bs
+class SwapDir(unittest.TestCase):
+    """0.12: swap_dir atomikliği — new dest'e geçer, eski dest .prev olur."""
+    import shutil as _sh
+
+    def _mkdir(self, name, content="hello"):
+        d = tempfile.mkdtemp(prefix="beeos-swap-")
+        self.addCleanup(SwapDir._sh.rmtree, d, True)
+        with open(os.path.join(d, "f.txt"), "w", encoding="utf-8") as f:
+            f.write(content)
+        return d
+
+    def test_swap_moves_new_to_dest(self):
+        new = self._mkdir("new", "v2")
+        dest_parent = tempfile.mkdtemp(prefix="beeos-swap-")
+        self.addCleanup(SwapDir._sh.rmtree, dest_parent, True)
+        dest = os.path.join(dest_parent, "web")
+        SwapDir._sh.copytree(self._mkdir("old", "v1"), dest)
+        bs.swap_dir(new, dest)
+        self.assertFalse(os.path.exists(new))
+        with open(os.path.join(dest, "f.txt"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "v2")
+        with open(os.path.join(dest + ".prev", "f.txt"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "v1")
+
+    def test_swap_without_existing_dest(self):
+        new = self._mkdir("new", "v2")
+        dest_parent = tempfile.mkdtemp(prefix="beeos-swap-")
+        self.addCleanup(SwapDir._sh.rmtree, dest_parent, True)
+        dest = os.path.join(dest_parent, "web")
+        bs.swap_dir(new, dest)
+        self.assertTrue(os.path.isdir(dest))
+        self.assertFalse(os.path.exists(dest + ".prev"))
+
+    def test_swap_missing_new_raises(self):
+        dest_parent = tempfile.mkdtemp(prefix="beeos-swap-")
+        self.addCleanup(SwapDir._sh.rmtree, dest_parent, True)
+        dest = os.path.join(dest_parent, "web")
+        os.makedirs(dest)
+        with self.assertRaises((FileNotFoundError, OSError)):
+            bs.swap_dir(os.path.join(dest_parent, "nonexistent"), dest)
+        # swap_dir, hata olursa eski dest'i prev'den geri getirmeli
+        self.assertTrue(os.path.isdir(dest))
+
+    def test_two_successive_swaps(self):
+        dest_parent = tempfile.mkdtemp(prefix="beeos-swap-")
+        self.addCleanup(SwapDir._sh.rmtree, dest_parent, True)
+        dest = os.path.join(dest_parent, "web")
+        SwapDir._sh.copytree(self._mkdir("v1", "v1"), dest)
+        bs.swap_dir(self._mkdir("v2", "v2"), dest)      # dest=v2, .prev=v1
+        bs.swap_dir(self._mkdir("v3", "v3"), dest)      # dest=v3, .prev=v2 (v1 silinmiş)
+        with open(os.path.join(dest, "f.txt"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "v3")
+        with open(os.path.join(dest + ".prev", "f.txt"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "v2")
+
+
+@_skip_if_no_bs
+class VerifySignature(unittest.TestCase):
+    """0.12: minisign imza akışı — hata yolları."""
+    def setUp(self):
+        self._orig_pub = bs.UPDATE_PUB
+
+    def tearDown(self):
+        bs.UPDATE_PUB = self._orig_pub
+
+    def test_no_key_passes_silently(self):
+        # Anahtar yoksa fonksiyon return eder (uyar, hata atmaz)
+        bs.UPDATE_PUB = "/tmp/beeos-no-such-key.pub"
+        r = {"version": "0.1.0", "assets": {}}
+        # None döner ve exception atmaz
+        self.assertIsNone(bs.verify_signature(r, "/tmp/any"))
+
+    def test_missing_minisign_binary(self):
+        import shutil as _shutil
+        if _shutil.which("minisign") is not None:
+            self.skipTest("minisign yüklü — bu test minisign yokken anlamlı")
+        # Anahtar var göster
+        pub = tempfile.NamedTemporaryFile(mode="w", suffix=".pub", delete=False)
+        pub.write("dummy"); pub.close()
+        self.addCleanup(os.unlink, pub.name)
+        bs.UPDATE_PUB = pub.name
+        r = {"version": "0.1.0", "assets": {"beeos-update-0.1.0.tar.gz.minisig": {"url": "x"}}}
+        with self.assertRaises(bs.UpdateError) as cm:
+            bs.verify_signature(r, "/tmp/pkg")
+        self.assertIn("doğrulayıcı", str(cm.exception))
+
+    def test_missing_signature_asset(self):
+        import shutil as _shutil
+        if _shutil.which("minisign") is None:
+            self.skipTest("minisign yok — bu test anahtar + minisign gerektirir")
+        pub = tempfile.NamedTemporaryFile(mode="w", suffix=".pub", delete=False)
+        pub.write("dummy"); pub.close()
+        self.addCleanup(os.unlink, pub.name)
+        bs.UPDATE_PUB = pub.name
+        r = {"version": "0.1.0", "assets": {}}       # .minisig yok
+        with self.assertRaises(bs.UpdateError) as cm:
+            bs.verify_signature(r, "/tmp/pkg")
+        self.assertIn("imzalı değil", str(cm.exception).lower().replace("i̇", "i"))
+
+
+@_skip_if_no_bs
+class AllowLan(unittest.TestCase):
+    """0.12: _allow_lan tek kaynak (remote.json); backward compat için UPDATE_CONF okur."""
+    def setUp(self):
+        self._orig_conf = bs.UPDATE_CONF
+
+    def tearDown(self):
+        bs.UPDATE_CONF = self._orig_conf
+
+    def test_default_false(self):
+        # /etc/beeos yoksa + UPDATE_CONF yoksa False
+        bs.UPDATE_CONF = "/tmp/beeos-nonexistent-update.json"
+        # remote.json yoksa (Windows'ta zaten yok) False
+        self.assertFalse(bs._allow_lan())
+
+    def test_update_conf_backward_compat(self):
+        # UPDATE_CONF içinde allowLan:true → True (uyarı loglar)
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8")
+        import json as _json
+        _json.dump({"allowLan": True}, f)
+        f.close()
+        self.addCleanup(os.unlink, f.name)
+        bs.UPDATE_CONF = f.name
+        # remote.json okunamıyor (hardcoded /etc/beeos path yok), UPDATE_CONF'ten okumalı
+        if os.path.exists("/etc/beeos/remote.json"):
+            self.skipTest("/etc/beeos/remote.json var; hardcoded path üzerinden test anlamsız")
+        self.assertTrue(bs._allow_lan())
+
+    def test_update_conf_false_value(self):
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8")
+        import json as _json
+        _json.dump({"allowLan": False}, f)
+        f.close()
+        self.addCleanup(os.unlink, f.name)
+        bs.UPDATE_CONF = f.name
+        if os.path.exists("/etc/beeos/remote.json"):
+            self.skipTest("/etc/beeos/remote.json var; hardcoded path üzerinden test anlamsız")
+        self.assertFalse(bs._allow_lan())
+
+    def test_invalid_json(self):
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8")
+        f.write("{not json"); f.close()
+        self.addCleanup(os.unlink, f.name)
+        bs.UPDATE_CONF = f.name
+        if os.path.exists("/etc/beeos/remote.json"):
+            self.skipTest("/etc/beeos/remote.json var")
+        self.assertFalse(bs._allow_lan())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

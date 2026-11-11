@@ -3,6 +3,30 @@
 Bu dosya [Keep a Changelog](https://keepachangelog.com/) biçimini takip eder ve [SemVer](https://semver.org/) kurallarına uyar.
 Giriş yazımı: `feat:`, `fix:`, `security:`, `perf:`, `docs:`, `chore:`.
 
+## [0.12.0] — 2026-11-11
+
+### Yeni
+- **Ebeveyn kilidi** — Ayarlar > "Ebeveyn PIN'i" ile 4 haneli PIN tanımla; kart menüsünden
+  "PIN ile aç" / "PIN istenmesin". Doğru PIN'den sonra 5 dk içinde tekrar sorulmaz.
+- **HDMI sink ses düzeyi kalıcılığı** — Her sink'in (dahili hoparlör / TV / kulaklık) son düzey +
+  mute durumu `/var/lib/beeos/sink-levels.json`'da saklı. Cihaz geri geldiğinde eski düzey otomatik
+  geri yüklenir.
+- **`beeos-nvidia` komutu** — Nvidia proprietary driver için interaktif kurulum/durum/kaldırma
+  (`beeos-nvidia install`); non-free apt kaynağı ekler, nouveau blacklist, initramfs yeniler.
+- **Ekrana geçiş bildirimi** — Sway oturum restart gerektiğinde ("TV farklı ekran kartına bağlı")
+  önceden bildirim merkezinde "Ekrana geçiliyor…" notu.
+
+### Belge
+- **docs/pc-first-run.md** — İmaj indir → USB'ye yaz → boot → kurulum sihirbazı adım adım.
+
+### Yapı
+- **ESLint (ES5 webOS uyumluluğu)** — `.eslintrc.json` + CI'de `npx eslint@8` adımı. 17 dosya,
+  0 hata. `tests/` için 2022 override.
+
+### Test
+- 6 yeni frontend testi (`availableHere` / `moveItem` kenar senaryoları) → 42 Node testi.
+- 11 yeni backend testi (`swap_dir` atomik, `verify_signature` hata yolları, `_allow_lan`) → 51 Python.
+
 ## [0.11.0] — 2026-11-10
 
 ### Yeni

@@ -1265,6 +1265,90 @@ SINK = "@DEFAULT_AUDIO_SINK@"
 VOLUME = {"volup": ["set-volume", "-l", "1.0", SINK, "5%+"],
           "voldown": ["set-volume", SINK, "5%-"],
           "mute": ["set-mute", SINK, "toggle"]}
+# HDMI sink ses kalıcılık: TV takılınca sink değişir; her sink'in son düzeyini sakla,
+# cihaz geri geldiğinde eski düzeyini otomatik geri yükle.
+SINK_LEVELS_FILE = os.path.join(STATE_DIR, "sink-levels.json")
+_sink_lock = threading.Lock()
+
+
+def _sink_name():
+    """Aktif default sink'in adı (wpctl inspect @DEFAULT_AUDIO_SINK@)."""
+    try:
+        out = run_bee(["wpctl", "inspect", "@DEFAULT_AUDIO_SINK@"]).stdout
+        m = re.search(r'node\.name\s*=\s*"([^"]+)"', out)
+        return m.group(1) if m else ""
+    except Exception:
+        return ""
+
+
+def _load_sink_levels():
+    try:
+        with open(SINK_LEVELS_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_sink_levels(d):
+    try:
+        os.makedirs(STATE_DIR, mode=0o700, exist_ok=True)
+        tmp = SINK_LEVELS_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(d, f)
+        os.replace(tmp, SINK_LEVELS_FILE)
+    except OSError as e:
+        log("sink levels save:", repr(e))
+
+
+def _remember_sink_level():
+    """Mevcut sink'in düzeyini sakla."""
+    name = _sink_name()
+    if not name:
+        return
+    vol = volume_get()
+    if not vol:
+        return
+    with _sink_lock:
+        d = _load_sink_levels()
+        d[name] = {"level": vol["level"], "muted": vol["muted"], "ts": int(time.time())}
+        _save_sink_levels(d)
+
+
+def _restore_sink_level():
+    """Yeni aktif sink için saklı düzeyi geri yükle (varsa)."""
+    name = _sink_name()
+    if not name:
+        return
+    with _sink_lock:
+        d = _load_sink_levels()
+        saved = d.get(name)
+    if not saved:
+        return
+    try:
+        as_bee(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "%.2f" % (saved["level"] / 100.0)])
+        as_bee(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "1" if saved["muted"] else "0"])
+    except Exception as e:
+        log("sink restore:", repr(e))
+
+
+def _sink_watcher():
+    """Default sink değiştiğinde (HDMI takma/çıkarma) son düzey saklanır ve yenisi geri yüklenir."""
+    last = _sink_name()
+    _remember_sink_level()
+    while True:
+        time.sleep(3)
+        try:
+            cur = _sink_name()
+            if cur and cur != last:
+                # Önce eski sink'in son düzeyini sakla (default değişmeden önce yakalanmalı — best effort)
+                _restore_sink_level()
+                last = cur
+            else:
+                # Her 30 sn'de bir aktif sink'in düzeyini yenile
+                if int(time.time()) % 30 == 0:
+                    _remember_sink_level()
+        except Exception as e:
+            log("sink watcher:", repr(e))
 
 
 def new_pin():
@@ -2034,6 +2118,8 @@ def display_use(name):
             return {"ok": False, "error": "Ekran bulunamadı. Kablo takılı mı?"}
         if o.get("restart"):
             disp["pending"] = (name, sway_sock())
+            # UI'ye "oturum yeniden başlıyor" bildirsin — bu süre arayüz kaybolur, "donmuş" hissi vermesin
+            notify("Ekrana geçiliyor", "TV'ye bağlanmak için beeOS yeniden başlıyor…", "info")
             # Cevap arayüze ulaşsın diye biraz sonra: sway kapanınca oturum tüm kartlarla yeniden açılır
             threading.Timer(1.5, lambda: swaymsg("exit")).start()
             return {"ok": True, "restarting": True}
@@ -2493,6 +2579,7 @@ def main():
     except OSError as e:
         log("kumanda sunucusu açılamadı:", repr(e))
     threading.Thread(target=display_watch, daemon=True).start()
+    threading.Thread(target=_sink_watcher, daemon=True).start()
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     log("beeOS arka ucu", HOME_URL, "web:", WEB_ROOT, "kumanda portu:", REMOTE_PORT)
     srv.serve_forever()
